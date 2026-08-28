@@ -11,6 +11,8 @@ import com.example.audio.AudioExtractor
 import com.example.audio.AudioSeparator
 import com.example.audio.SeparationResult
 import com.example.audio.WavAudioUtil
+import com.example.data.AudioCacheManager
+import com.example.data.CachedAudioEntry
 import com.example.player.PlayerController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -38,6 +40,8 @@ data class VideoPlayerUiState(
     val processingStage: String = "",
     val processingProgress: Float = 0f,
     val isSeparated: Boolean = false,
+    val isCached: Boolean = false,
+    val totalCacheSizeBytes: Long = 0L,
     val vocalVolume: Float = 1.0f,
     val bgmVolume: Float = 0.0f,
     val playbackSpeed: Float = 1.0f,
@@ -58,6 +62,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val playerController = PlayerController(context, viewModelScope)
     private val audioExtractor = AudioExtractor(context)
     private val audioSeparator = AudioSeparator(context)
+    private val cacheManager = AudioCacheManager(context)
 
     private val _uiState = MutableStateFlow(VideoPlayerUiState())
     val uiState: StateFlow<VideoPlayerUiState> = _uiState.asStateFlow()
@@ -71,6 +76,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     init {
         // Clean up any stale temp files from previous sessions
         cleanupTempFiles()
+        refreshCacheSize()
+    }
+
+    fun refreshCacheSize() {
+        viewModelScope.launch {
+            val size = cacheManager.getTotalCacheSizeBytes()
+            _uiState.update { it.copy(totalCacheSizeBytes = size) }
+        }
     }
 
     fun onVideoSelected(uri: Uri) {
@@ -79,21 +92,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val displayName = queryFileName(uri) ?: "فيديو محدد"
                 cleanupCurrentMediaFiles()
 
-                _uiState.update {
-                    it.copy(
-                        currentVideoUri = uri,
-                        videoTitle = displayName,
-                        isVideoLoaded = true,
-                        playbackMode = AudioPlaybackMode.NATIVE_ORIGINAL,
-                        isVocalOnly = false,
-                        isProcessing = false,
-                        isSeparated = false,
-                        errorMessage = null,
-                        infoMessage = "تم تحميل الفيديو بنجاح: $displayName"
-                    )
-                }
+                // Check local cache first
+                val cachedEntry = cacheManager.getCachedEntry(uri)
+                if (cachedEntry != null) {
+                    val cachedVocal = File(cachedEntry.vocalFilePath)
+                    val cachedBgm = File(cachedEntry.accompanimentFilePath)
+                    vocalWavFile = cachedVocal
+                    accompanimentWavFile = cachedBgm
+                    extractedWavFile = cachedEntry.rawWavFilePath?.let { File(it) }
 
-                playerController.loadVideo(uri)
+                    playerController.loadVideo(uri)
+                    playerController.setupIsolatedTracks(cachedVocal, cachedBgm)
+
+                    _uiState.update {
+                        it.copy(
+                            currentVideoUri = uri,
+                            videoTitle = displayName,
+                            isVideoLoaded = true,
+                            playbackMode = AudioPlaybackMode.NATIVE_ORIGINAL,
+                            isVocalOnly = false,
+                            isProcessing = false,
+                            isSeparated = true,
+                            isCached = true,
+                            errorMessage = null,
+                            infoMessage = "تم العثور على الصوت المعالج في الذاكرة المؤقتة (جاهز فوراً بدون انتظار)"
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            currentVideoUri = uri,
+                            videoTitle = displayName,
+                            isVideoLoaded = true,
+                            playbackMode = AudioPlaybackMode.NATIVE_ORIGINAL,
+                            isVocalOnly = false,
+                            isProcessing = false,
+                            isSeparated = false,
+                            isCached = false,
+                            errorMessage = null,
+                            infoMessage = "تم تحميل الفيديو بنجاح: $displayName"
+                        )
+                    }
+                    playerController.loadVideo(uri)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading video: ${e.message}", e)
                 _uiState.update {
@@ -120,20 +161,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 WavAudioUtil.createSampleDemoAudio(demoAudioWav, durationSeconds = 16)
 
                 val demoUri = Uri.fromFile(demoAudioWav)
+                val cachedEntry = cacheManager.getCachedEntry(demoUri)
+
                 withContext(Dispatchers.Main) {
-                    _uiState.update {
-                        it.copy(
-                            currentVideoUri = demoUri,
-                            videoTitle = "مقطع توضيحي تجريبي (Demo Audio/Video)",
-                            isVideoLoaded = true,
-                            playbackMode = AudioPlaybackMode.NATIVE_ORIGINAL,
-                            isVocalOnly = false,
-                            isProcessing = false,
-                            isSeparated = false,
-                            infoMessage = "تم تحميل المقطع التجريبي بنجاح."
-                        )
+                    if (cachedEntry != null) {
+                        val cachedVocal = File(cachedEntry.vocalFilePath)
+                        val cachedBgm = File(cachedEntry.accompanimentFilePath)
+                        vocalWavFile = cachedVocal
+                        accompanimentWavFile = cachedBgm
+
+                        playerController.loadVideo(demoUri)
+                        playerController.setupIsolatedTracks(cachedVocal, cachedBgm)
+
+                        _uiState.update {
+                            it.copy(
+                                currentVideoUri = demoUri,
+                                videoTitle = "مقطع توضيحي تجريبي (Demo Audio/Video)",
+                                isVideoLoaded = true,
+                                playbackMode = AudioPlaybackMode.NATIVE_ORIGINAL,
+                                isVocalOnly = false,
+                                isProcessing = false,
+                                isSeparated = true,
+                                isCached = true,
+                                infoMessage = "تم تحميل المقطع التجريبي (متوفر في الذاكرة المؤقتة)."
+                            )
+                        }
+                    } else {
+                        _uiState.update {
+                            it.copy(
+                                currentVideoUri = demoUri,
+                                videoTitle = "مقطع توضيحي تجريبي (Demo Audio/Video)",
+                                isVideoLoaded = true,
+                                playbackMode = AudioPlaybackMode.NATIVE_ORIGINAL,
+                                isVocalOnly = false,
+                                isProcessing = false,
+                                isSeparated = false,
+                                isCached = false,
+                                infoMessage = "تم تحميل المقطع التجريبي بنجاح."
+                            )
+                        }
+                        playerController.loadVideo(demoUri)
                     }
-                    playerController.loadVideo(demoUri)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error generating demo: ${e.message}", e)
@@ -267,14 +335,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 when (separationResult) {
                     is SeparationResult.Success -> {
+                        // Persist to local cache so user never needs to process again!
+                        val savedEntry = cacheManager.saveToCache(
+                            uri = videoUri,
+                            videoTitle = _uiState.value.videoTitle,
+                            vocalSourceFile = separationResult.vocalFile,
+                            accompanimentSourceFile = separationResult.accompanimentFile,
+                            rawWavSourceFile = rawWav,
+                            durationMs = separationResult.durationMs
+                        )
+
+                        val finalVocalFile = if (savedEntry != null) File(savedEntry.vocalFilePath) else separationResult.vocalFile
+                        val finalBgmFile = if (savedEntry != null) File(savedEntry.accompanimentFilePath) else separationResult.accompanimentFile
+
                         extractedWavFile = rawWav
-                        vocalWavFile = separationResult.vocalFile
-                        accompanimentWavFile = separationResult.accompanimentFile
+                        vocalWavFile = finalVocalFile
+                        accompanimentWavFile = finalBgmFile
 
                         withContext(Dispatchers.Main) {
                             playerController.setupIsolatedTracks(
-                                vocalFile = separationResult.vocalFile,
-                                accompanimentFile = separationResult.accompanimentFile
+                                vocalFile = finalVocalFile,
+                                accompanimentFile = finalBgmFile
                             )
                             playerController.setVocalOnlyMode(true)
 
@@ -283,11 +364,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     isProcessing = false,
                                     processingProgress = 1.0f,
                                     isSeparated = true,
+                                    isCached = (savedEntry != null),
                                     playbackMode = AudioPlaybackMode.VOCAL_ONLY,
                                     isVocalOnly = true,
-                                    infoMessage = "تم الانتهاء من المعالجة! تم تشغيل الصوت البشري فقط وكتم الآلات."
+                                    infoMessage = "تم الانتهاء وحفظ الصوت في الذاكرة المؤقتة بنجاح! تم كتم الآلات الموسيقية."
                                 )
                             }
+                            refreshCacheSize()
                         }
                     }
                     is SeparationResult.Error -> {
@@ -310,6 +393,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         isVocalOnly = false,
                         errorMessage = "فشلت المعالجة: ${t.localizedMessage ?: t.javaClass.simpleName}"
                     )
+                }
+            }
+        }
+    }
+
+    fun clearAllAudioCache() {
+        viewModelScope.launch {
+            val success = cacheManager.clearCache()
+            if (success) {
+                refreshCacheSize()
+                _uiState.update {
+                    it.copy(
+                        isCached = false,
+                        infoMessage = "تم مسح جميع ملفات الذاكرة المؤقتة بنجاح."
+                    )
+                }
+            } else {
+                _uiState.update {
+                    it.copy(errorMessage = "حدث خطأ أثناء مسح الذاكرة المؤقتة.")
                 }
             }
         }

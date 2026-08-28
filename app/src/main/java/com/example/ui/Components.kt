@@ -314,6 +314,7 @@ fun PlaybackModeSelectorCard(
     currentMode: AudioPlaybackMode,
     isProcessing: Boolean,
     isSeparated: Boolean,
+    isCached: Boolean = false,
     onSelectMode: (AudioPlaybackMode) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -357,6 +358,33 @@ fun PlaybackModeSelectorCard(
                         fontWeight = FontWeight.Bold,
                         color = TextPrimaryDark
                     )
+                }
+
+                if (isCached) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = CyanAccent.copy(alpha = 0.16f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, CyanAccent.copy(alpha = 0.4f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Bolt,
+                                contentDescription = null,
+                                tint = CyanAccent,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "مخزّن مؤقتاً (Cached)",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = CyanAccent
+                            )
+                        }
+                    }
                 }
             }
 
@@ -521,7 +549,7 @@ fun PlaybackModeSelectorCard(
                                     color = if (isSeparated) EmeraldSuccess.copy(alpha = 0.18f) else AmberWarning.copy(alpha = 0.18f)
                                 ) {
                                     Text(
-                                        text = if (isSeparated) "جاهز" else "تخزين مؤقت",
+                                        text = if (isCached) "جاهز (Cache)" else if (isSeparated) "جاهز" else "تخزين مؤقت",
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = if (isSeparated) EmeraldSuccess else AmberWarning,
@@ -531,10 +559,12 @@ fun PlaybackModeSelectorCard(
                             }
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = if (isSeparated)
+                                text = if (isCached)
+                                    "محفوظ بالذاكرة المحلية - جاهز للتشغيل الفوري بدون إعادة معالجة"
+                                else if (isSeparated)
                                     "تم كتم الآلات الموسيقية وعزل الصوت البشري بجودة عالية"
                                 else
-                                    "كتم الموسيقى وعزل الصوت - يحتاج وقتاً للتخزين المؤقت حسب سرعة المعالجة",
+                                    "كتم الموسيقى وعزل الصوت - يحتاج وقتاً للتخزين المؤقت لأول مرة فقط",
                                 fontSize = 11.sp,
                                 color = TextSecondaryDark
                             )

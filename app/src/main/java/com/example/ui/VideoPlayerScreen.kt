@@ -390,10 +390,65 @@ fun VideoPlayerScreen(
                         currentMode = uiState.playbackMode,
                         isProcessing = uiState.isProcessing,
                         isSeparated = uiState.isSeparated,
+                        isCached = uiState.isCached,
                         onSelectMode = { mode ->
                             viewModel.selectPlaybackMode(mode)
                         }
                     )
+
+                    // Cache Status & Storage Management Bar
+                    if (uiState.totalCacheSizeBytes > 0L) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp)),
+                            color = Navy800.copy(alpha = 0.7f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Navy700)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Storage,
+                                        contentDescription = null,
+                                        tint = CyanAccent,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    val sizeMb = uiState.totalCacheSizeBytes / (1024f * 1024f)
+                                    Text(
+                                        text = "الذاكرة المؤقتة المحفوظة: ${"%.1f".format(sizeMb)} ميجابايت",
+                                        fontSize = 11.sp,
+                                        color = TextSecondaryDark
+                                    )
+                                }
+
+                                TextButton(
+                                    onClick = { viewModel.clearAllAudioCache() },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.testTag("clear_cache_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DeleteOutline,
+                                        contentDescription = null,
+                                        tint = TextSecondaryDark,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "مسح الذاكرة",
+                                        fontSize = 11.sp,
+                                        color = TextSecondaryDark
+                                    )
+                                }
+                            }
+                        }
+                    }
 
                     // Processing Progress Card
                     if (uiState.isProcessing) {
