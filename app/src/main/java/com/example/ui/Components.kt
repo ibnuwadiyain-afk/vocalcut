@@ -310,6 +310,243 @@ fun VideoPlayerControlsOverlay(
 }
 
 @Composable
+fun PlaybackModeSelectorCard(
+    currentMode: AudioPlaybackMode,
+    isProcessing: Boolean,
+    isSeparated: Boolean,
+    onSelectMode: (AudioPlaybackMode) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("playback_mode_selector_card"),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Navy800),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Navy600)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Brush.linearGradient(listOf(CyanAccent, PurpleAccent))),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Headphones,
+                            contentDescription = null,
+                            tint = Navy900,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "خيارات تشغيل الصوت (Audio Playback Options)",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimaryDark
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Option 1: Normal Native Audio
+            val isNativeSelected = (currentMode == AudioPlaybackMode.NATIVE_ORIGINAL)
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable { onSelectMode(AudioPlaybackMode.NATIVE_ORIGINAL) }
+                    .testTag("option_native_audio"),
+                shape = RoundedCornerShape(14.dp),
+                color = if (isNativeSelected) Navy700 else Navy900.copy(alpha = 0.6f),
+                border = androidx.compose.foundation.BorderStroke(
+                    width = if (isNativeSelected) 1.5.dp else 1.dp,
+                    color = if (isNativeSelected) CyanAccent else Navy700
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = isNativeSelected,
+                            onClick = { onSelectMode(AudioPlaybackMode.NATIVE_ORIGINAL) },
+                            colors = RadioButtonDefaults.colors(
+                                selectedColor = CyanAccent,
+                                unselectedColor = TextSecondaryDark
+                            ),
+                            modifier = Modifier.size(20.dp)
+                        )
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(if (isNativeSelected) CyanAccent.copy(alpha = 0.2f) else Navy700),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Audiotrack,
+                                contentDescription = null,
+                                tint = if (isNativeSelected) CyanAccent else TextSecondaryDark,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "1. الصوت الأصلي (Normal Native Audio)",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = if (isNativeSelected) CyanAccent else TextPrimaryDark
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = EmeraldSuccess.copy(alpha = 0.18f)
+                                ) {
+                                    Text(
+                                        text = "فوري",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = EmeraldSuccess,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "تشغيل فوري لمسار الصوت الأصلي للفيديو بدون معالجة أو انتظار",
+                                fontSize = 11.sp,
+                                color = TextSecondaryDark
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Option 2: Vocal Only with Mute Instruments
+            val isVocalSelected = (currentMode == AudioPlaybackMode.VOCAL_ONLY)
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable { onSelectMode(AudioPlaybackMode.VOCAL_ONLY) }
+                    .testTag("option_vocal_only"),
+                shape = RoundedCornerShape(14.dp),
+                color = if (isVocalSelected) Navy700 else Navy900.copy(alpha = 0.6f),
+                border = androidx.compose.foundation.BorderStroke(
+                    width = if (isVocalSelected) 1.5.dp else 1.dp,
+                    color = if (isVocalSelected) PurpleAccent else Navy700
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = isVocalSelected,
+                            onClick = { onSelectMode(AudioPlaybackMode.VOCAL_ONLY) },
+                            colors = RadioButtonDefaults.colors(
+                                selectedColor = PurpleAccent,
+                                unselectedColor = TextSecondaryDark
+                            ),
+                            modifier = Modifier.size(20.dp)
+                        )
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(if (isVocalSelected) PurpleAccent.copy(alpha = 0.2f) else Navy700),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.RecordVoiceOver,
+                                contentDescription = null,
+                                tint = if (isVocalSelected) PurpleAccent else TextSecondaryDark,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "2. صوت بشري فقط (Vocal Only / Mute Instruments)",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = if (isVocalSelected) PurpleAccent else TextPrimaryDark
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = if (isSeparated) EmeraldSuccess.copy(alpha = 0.18f) else AmberWarning.copy(alpha = 0.18f)
+                                ) {
+                                    Text(
+                                        text = if (isSeparated) "جاهز" else "تخزين مؤقت",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSeparated) EmeraldSuccess else AmberWarning,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (isSeparated)
+                                    "تم كتم الآلات الموسيقية وعزل الصوت البشري بجودة عالية"
+                                else
+                                    "كتم الموسيقى وعزل الصوت - يحتاج وقتاً للتخزين المؤقت حسب سرعة المعالجة",
+                                fontSize = 11.sp,
+                                color = TextSecondaryDark
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun ProcessingCard(
     stage: String,
     progress: Float,

@@ -32,6 +32,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.ui.PlayerView
 import com.example.ui.theme.*
 
@@ -48,6 +51,19 @@ fun VideoPlayerScreen(
 
     var showInfoDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
+                viewModel.playerController.pause()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     val videoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -369,85 +385,15 @@ fun VideoPlayerScreen(
                         }
                     }
 
-                    // PRIMARY FEATURE: Vocal Isolation Switch Card
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("vocal_toggle_card"),
-                        shape = RoundedCornerShape(18.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (uiState.isVocalOnly) Navy700 else Navy800
-                        ),
-                        border = androidx.compose.foundation.BorderStroke(
-                            width = if (uiState.isVocalOnly) 2.dp else 1.dp,
-                            color = if (uiState.isVocalOnly) CyanAccent else Navy600
-                        )
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(18.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                modifier = Modifier.weight(1f),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(46.dp)
-                                        .clip(CircleShape)
-                                        .background(
-                                            if (uiState.isVocalOnly) CyanAccent else Navy600
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = if (uiState.isVocalOnly) Icons.Default.RecordVoiceOver else Icons.Default.MusicOff,
-                                        contentDescription = null,
-                                        tint = if (uiState.isVocalOnly) Navy900 else TextSecondaryDark,
-                                        modifier = Modifier.size(26.dp)
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.width(14.dp))
-
-                                Column {
-                                    Text(
-                                        text = "إخفاء الموسيقى (إبقاء الصوت فقط)",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp,
-                                        color = if (uiState.isVocalOnly) CyanAccent else TextPrimaryDark
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = if (uiState.isVocalOnly)
-                                            "تم كتم الآلات الموسيقية وعزل الصوت البشري (Spleeter AI)"
-                                        else
-                                            "اضغط للتفعيل وفصل الموسيقى عن الصوت البشري",
-                                        fontSize = 11.sp,
-                                        color = TextSecondaryDark
-                                    )
-                                }
-                            }
-
-                            Switch(
-                                checked = uiState.isVocalOnly,
-                                onCheckedChange = { enabled ->
-                                    viewModel.toggleVocalOnly(enabled)
-                                },
-                                enabled = !uiState.isProcessing,
-                                modifier = Modifier.testTag("vocal_isolation_switch"),
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Navy900,
-                                    checkedTrackColor = CyanAccent,
-                                    uncheckedThumbColor = TextSecondaryDark,
-                                    uncheckedTrackColor = Navy600
-                                )
-                            )
+                    // PRIMARY FEATURE: Audio Playback Options (Option 1: Normal Native Audio, Option 2: Vocal Only / Mute Instruments)
+                    PlaybackModeSelectorCard(
+                        currentMode = uiState.playbackMode,
+                        isProcessing = uiState.isProcessing,
+                        isSeparated = uiState.isSeparated,
+                        onSelectMode = { mode ->
+                            viewModel.selectPlaybackMode(mode)
                         }
-                    }
+                    )
 
                     // Processing Progress Card
                     if (uiState.isProcessing) {

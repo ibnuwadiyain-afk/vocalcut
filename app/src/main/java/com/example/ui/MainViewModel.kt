@@ -23,10 +23,16 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 
+enum class AudioPlaybackMode {
+    NATIVE_ORIGINAL, // Standard native original video audio (immediate playback, no buffering/separation)
+    VOCAL_ONLY       // Isolated human vocal only with muted instruments (buffered/processed via AI DSP)
+}
+
 data class VideoPlayerUiState(
     val currentVideoUri: Uri? = null,
     val videoTitle: String = "",
     val isVideoLoaded: Boolean = false,
+    val playbackMode: AudioPlaybackMode = AudioPlaybackMode.NATIVE_ORIGINAL,
     val isVocalOnly: Boolean = false,
     val isProcessing: Boolean = false,
     val processingStage: String = "",
@@ -78,6 +84,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         currentVideoUri = uri,
                         videoTitle = displayName,
                         isVideoLoaded = true,
+                        playbackMode = AudioPlaybackMode.NATIVE_ORIGINAL,
                         isVocalOnly = false,
                         isProcessing = false,
                         isSeparated = false,
@@ -119,10 +126,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             currentVideoUri = demoUri,
                             videoTitle = "مقطع توضيحي تجريبي (Demo Audio/Video)",
                             isVideoLoaded = true,
+                            playbackMode = AudioPlaybackMode.NATIVE_ORIGINAL,
                             isVocalOnly = false,
                             isProcessing = false,
                             isSeparated = false,
-                            infoMessage = "تم تحميل المقطع التجريبي. اضغط على 'إخفاء الموسيقى' لفصل الصوت!"
+                            infoMessage = "تم تحميل المقطع التجريبي بنجاح."
                         )
                     }
                     playerController.loadVideo(demoUri)
@@ -139,26 +147,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun toggleVocalOnly(enableVocalOnly: Boolean) {
+    fun selectPlaybackMode(mode: AudioPlaybackMode) {
         val currentState = _uiState.value
         if (!currentState.isVideoLoaded || currentState.currentVideoUri == null) {
             _uiState.update { it.copy(errorMessage = "يرجى اختيار ملف فيديو أولاً.") }
             return
         }
 
-        if (enableVocalOnly) {
-            if (currentState.isSeparated && vocalWavFile != null && vocalWavFile!!.exists()) {
-                // Already processed, just switch player mode
-                _uiState.update { it.copy(isVocalOnly = true) }
-                playerController.setVocalOnlyMode(true)
-            } else {
-                // Need to process audio first
-                processAudioAndEnableVocalOnly(currentState.currentVideoUri)
+        when (mode) {
+            AudioPlaybackMode.NATIVE_ORIGINAL -> {
+                // Instantly switch back to native original audio
+                _uiState.update {
+                    it.copy(
+                        playbackMode = AudioPlaybackMode.NATIVE_ORIGINAL,
+                        isVocalOnly = false
+                    )
+                }
+                playerController.setVocalOnlyMode(false)
             }
-        } else {
-            _uiState.update { it.copy(isVocalOnly = false) }
-            playerController.setVocalOnlyMode(false)
+            AudioPlaybackMode.VOCAL_ONLY -> {
+                if (currentState.isSeparated && vocalWavFile != null && vocalWavFile!!.exists()) {
+                    // Already processed and cached, instant switch
+                    _uiState.update {
+                        it.copy(
+                            playbackMode = AudioPlaybackMode.VOCAL_ONLY,
+                            isVocalOnly = true
+                        )
+                    }
+                    playerController.setVocalOnlyMode(true)
+                } else {
+                    // Process audio & isolate vocal with buffering/progress feedback
+                    _uiState.update {
+                        it.copy(
+                            playbackMode = AudioPlaybackMode.VOCAL_ONLY,
+                            isVocalOnly = true
+                        )
+                    }
+                    processAudioAndEnableVocalOnly(currentState.currentVideoUri)
+                }
+            }
         }
+    }
+
+    fun toggleVocalOnly(enableVocalOnly: Boolean) {
+        selectPlaybackMode(if (enableVocalOnly) AudioPlaybackMode.VOCAL_ONLY else AudioPlaybackMode.NATIVE_ORIGINAL)
     }
 
     private fun processAudioAndEnableVocalOnly(videoUri: Uri) {
@@ -168,7 +200,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.update {
                     it.copy(
                         isProcessing = true,
-                        processingStage = "استخراج الصوت من الفيديو...",
+                        processingStage = "جارٍ استخراج الصوت وعزله (قد يستغرق بعض الوقت للتخزين المؤقت)...",
                         processingProgress = 0.05f,
                         errorMessage = null
                     )
@@ -179,7 +211,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val vocalWav = File(tempDir, "vocal_isolated.wav")
                 val accompanimentWav = File(tempDir, "accompaniment_isolated.wav")
 
-                // Step 1: Extract Audio
+                // Step 1: Extract Audio Track
                 val isExtracted = if (videoUri.scheme == "file" && videoUri.path?.endsWith(".wav") == true) {
                     // Already WAV (e.g. demo)
                     File(videoUri.path!!).copyTo(rawWav, overwrite = true)
@@ -192,7 +224,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             _uiState.update {
                                 it.copy(
                                     processingStage = "استخراج الصوت من الفيديو (${(progress * 100).toInt()}%)...",
-                                    processingProgress = progress * 0.45f
+                                    processingProgress = progress * 0.40f
                                 )
                             }
                         }
@@ -203,17 +235,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.update {
                         it.copy(
                             isProcessing = false,
+                            playbackMode = AudioPlaybackMode.NATIVE_ORIGINAL,
+                            isVocalOnly = false,
                             errorMessage = "فشل في استخراج الصوت من ملف الفيديو المحدد."
                         )
                     }
                     return@launch
                 }
 
-                // Step 2: Separate Audio (Spleeter 2-stem model)
+                // Step 2: Separate Audio Stems (Vocal vs Instrumental)
                 _uiState.update {
                     it.copy(
-                        processingStage = "جارٍ فصل الصوت وعزل الموسيقى (Spleeter AI)...",
-                        processingProgress = 0.5f
+                        processingStage = "جارٍ عزل الصوت البشري وكتم الآلات الموسيقية...",
+                        processingProgress = 0.45f
                     )
                 }
 
@@ -224,8 +258,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     onProgress = { progress ->
                         _uiState.update {
                             it.copy(
-                                processingStage = "جارٍ عزل الصوت البشري (${(progress * 100).toInt()}%)...",
-                                processingProgress = 0.45f + (progress * 0.50f)
+                                processingStage = "تخزين ومعالجة الصوت البشري (${(progress * 100).toInt()}%)...",
+                                processingProgress = 0.40f + (progress * 0.58f)
                             )
                         }
                     }
@@ -249,8 +283,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     isProcessing = false,
                                     processingProgress = 1.0f,
                                     isSeparated = true,
+                                    playbackMode = AudioPlaybackMode.VOCAL_ONLY,
                                     isVocalOnly = true,
-                                    infoMessage = "تم فصل الصوت بنجاح! تم كتم الموسيقى والإبقاء على الصوت البشري فقط."
+                                    infoMessage = "تم الانتهاء من المعالجة! تم تشغيل الصوت البشري فقط وكتم الآلات."
                                 )
                             }
                         }
@@ -259,17 +294,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _uiState.update {
                             it.copy(
                                 isProcessing = false,
+                                playbackMode = AudioPlaybackMode.NATIVE_ORIGINAL,
+                                isVocalOnly = false,
                                 errorMessage = separationResult.message
                             )
                         }
                     }
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Audio processing failed: ${e.message}", e)
+            } catch (t: Throwable) {
+                Log.e(TAG, "Audio processing failed: ${t.message}", t)
                 _uiState.update {
                     it.copy(
                         isProcessing = false,
-                        errorMessage = "فشلت المعالجة: ${e.localizedMessage}"
+                        playbackMode = AudioPlaybackMode.NATIVE_ORIGINAL,
+                        isVocalOnly = false,
+                        errorMessage = "فشلت المعالجة: ${t.localizedMessage ?: t.javaClass.simpleName}"
                     )
                 }
             }

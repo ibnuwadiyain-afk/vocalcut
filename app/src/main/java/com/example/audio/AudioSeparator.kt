@@ -14,7 +14,7 @@ class AudioSeparator(private val context: Context) {
 
     /**
      * Separates the input mixed audio WAV into Vocal and Accompaniment WAV files
-     * using on-device high-performance DSP spectral masking.
+     * using on-device streaming DSP spectral masking with low memory overhead.
      */
     suspend fun separateAudio(
         inputWavFile: File,
@@ -28,55 +28,37 @@ class AudioSeparator(private val context: Context) {
             }
 
             onProgress(0.05f)
-            val mixedSamples = WavAudioUtil.readWavToShortArray(inputWavFile)
-            if (mixedSamples.isEmpty()) {
-                return@withContext SeparationResult.Error("فشل قراءة بيانات الصوت.")
-            }
 
-            onProgress(0.15f)
-
-            // Perform separation using DSP spectral masking engine
-            val (vocalSamples, accompanimentSamples) = WavAudioUtil.separateStemsDSP(
-                mixedSamples = mixedSamples,
-                sampleRate = WavAudioUtil.SAMPLE_RATE_16K,
+            // Perform streaming separation
+            val durationMs = WavAudioUtil.separateWavStemsStreaming(
+                inputWavFile = inputWavFile,
+                outputVocalWav = outputVocalWav,
+                outputAccompanimentWav = outputAccompanimentWav,
+                sampleRate = WavAudioUtil.SAMPLE_RATE_44K,
                 onProgress = { stepProgress ->
-                    // Map progress from 0.15 to 0.90
-                    val mapped = 0.15f + (stepProgress * 0.75f)
+                    val mapped = 0.05f + (stepProgress * 0.95f)
                     onProgress(mapped)
                 }
             )
 
-            onProgress(0.92f)
-
-            // Write separated stems to WAV files
-            WavAudioUtil.writePcmToWav(
-                pcmData = vocalSamples,
-                outputFile = outputVocalWav,
-                sampleRate = WavAudioUtil.SAMPLE_RATE_16K,
-                channels = 1
-            )
-
-            WavAudioUtil.writePcmToWav(
-                pcmData = accompanimentSamples,
-                outputFile = outputAccompanimentWav,
-                sampleRate = WavAudioUtil.SAMPLE_RATE_16K,
-                channels = 1
-            )
+            if (!outputVocalWav.exists() || outputVocalWav.length() <= 44) {
+                return@withContext SeparationResult.Error("فشل إنشاء ملف الصوت المفصول.")
+            }
 
             onProgress(1.0f)
             SeparationResult.Success(
                 vocalFile = outputVocalWav,
                 accompanimentFile = outputAccompanimentWav,
-                durationMs = (mixedSamples.size.toLong() * 1000L) / WavAudioUtil.SAMPLE_RATE_16K
+                durationMs = durationMs
             )
-        } catch (e: Exception) {
-            Log.e(TAG, "Audio separation failed: ${e.message}", e)
-            SeparationResult.Error("حدث خطأ أثناء فصل الصوت: ${e.localizedMessage}")
+        } catch (t: Throwable) {
+            Log.e(TAG, "Audio separation failed: ${t.message}", t)
+            SeparationResult.Error("حدث خطأ أثناء فصل الصوت: ${t.localizedMessage ?: t.javaClass.simpleName}")
         }
     }
 
     fun release() {
-        // No resources to release
+        // No heavy resources held
     }
 }
 
@@ -89,4 +71,3 @@ sealed class SeparationResult {
 
     data class Error(val message: String) : SeparationResult()
 }
-

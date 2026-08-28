@@ -27,7 +27,7 @@ class PlayerController(
 ) {
     companion object {
         private const val TAG = "PlayerController"
-        private const val SYNC_TOLERANCE_MS = 80L
+        private const val SYNC_DRIFT_THRESHOLD_MS = 600L
     }
 
     val videoPlayer: ExoPlayer = ExoPlayer.Builder(context).build().apply {
@@ -100,11 +100,11 @@ class PlayerController(
                         _durationMs.value = dur
                     }
 
-                    // Enforce audio sync periodically
+                    // Enforce audio sync only when there is substantial drift to avoid stuttering
                     if (isVocalOnlyMode && vocalPlayer != null && videoPlayer.isPlaying) {
                         val vocalPos = vocalPlayer?.currentPosition ?: 0L
                         val diff = abs(pos - vocalPos)
-                        if (diff > SYNC_TOLERANCE_MS) {
+                        if (diff > SYNC_DRIFT_THRESHOLD_MS) {
                             vocalPlayer?.seekTo(pos)
                             accompanimentPlayer?.seekTo(pos)
                         }
@@ -129,6 +129,9 @@ class PlayerController(
     fun setupIsolatedTracks(vocalFile: File, accompanimentFile: File?) {
         releaseSecondaryPlayers()
 
+        val currentPos = videoPlayer.currentPosition
+        val currentIsPlaying = videoPlayer.isPlaying
+
         // Create vocal player
         vocalPlayer = ExoPlayer.Builder(context).build().apply {
             setAudioAttributes(
@@ -142,7 +145,8 @@ class PlayerController(
             prepare()
             volume = if (isVocalOnlyMode) vocalVolumeLevel else 0.0f
             playbackParameters = PlaybackParameters(playbackSpeed)
-            seekTo(videoPlayer.currentPosition)
+            seekTo(currentPos)
+            playWhenReady = currentIsPlaying
         }
 
         // Create accompaniment player if available
@@ -159,7 +163,8 @@ class PlayerController(
                 prepare()
                 volume = if (isVocalOnlyMode) bgmVolumeLevel else 0.0f
                 playbackParameters = PlaybackParameters(playbackSpeed)
-                seekTo(videoPlayer.currentPosition)
+                seekTo(currentPos)
+                playWhenReady = currentIsPlaying
             }
         }
 
@@ -178,7 +183,7 @@ class PlayerController(
             vocalPlayer?.volume = vocalVolumeLevel
             accompanimentPlayer?.volume = bgmVolumeLevel
 
-            // Resync positions and play states
+            // Sync positions and play states seamlessly
             val currentPos = videoPlayer.currentPosition
             vocalPlayer?.seekTo(currentPos)
             accompanimentPlayer?.seekTo(currentPos)
