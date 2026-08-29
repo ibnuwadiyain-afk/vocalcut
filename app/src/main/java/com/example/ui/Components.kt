@@ -1,5 +1,8 @@
 package com.example.ui
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
@@ -24,6 +27,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -315,6 +319,8 @@ fun PlaybackModeSelectorCard(
     isProcessing: Boolean,
     isSeparated: Boolean,
     isCached: Boolean = false,
+    delayPlaybackUntilBuffer: Boolean = true,
+    onToggleDelayPlayback: (Boolean) -> Unit = {},
     onSelectMode: (AudioPlaybackMode) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -353,7 +359,7 @@ fun PlaybackModeSelectorCard(
                     }
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "خيارات تشغيل الصوت (Audio Playback Options)",
+                        text = "خيارات تشغيل الصوت (Audio Playback)",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimaryDark
@@ -571,6 +577,60 @@ fun PlaybackModeSelectorCard(
                         }
                     }
                 }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Delay Playback Until Buffer Cache Switch
+            HorizontalDivider(color = Navy700, thickness = 1.dp)
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onToggleDelayPlayback(!delayPlaybackUntilBuffer) }
+                    .padding(vertical = 4.dp, horizontal = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.HourglassTop,
+                        contentDescription = null,
+                        tint = if (delayPlaybackUntilBuffer) CyanAccent else TextSecondaryDark,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "تأخير بدء التشغيل حتى اكتمال التخزين المؤقت",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (delayPlaybackUntilBuffer) TextPrimaryDark else TextSecondaryDark
+                        )
+                        Text(
+                            text = "إيقاف مؤقت حتى انتهاء عزل الصوت ويبدأ تلقائياً فور الجاهزية",
+                            fontSize = 10.sp,
+                            color = TextSecondaryDark
+                        )
+                    }
+                }
+
+                Switch(
+                    checked = delayPlaybackUntilBuffer,
+                    onCheckedChange = onToggleDelayPlayback,
+                    modifier = Modifier.testTag("toggle_delay_playback_switch"),
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = CyanAccent,
+                        checkedTrackColor = CyanDark,
+                        uncheckedThumbColor = TextSecondaryDark,
+                        uncheckedTrackColor = Navy700
+                    )
+                )
             }
         }
     }
@@ -793,6 +853,245 @@ fun TrackMixerCard(
             }
         }
     }
+}
+
+@Composable
+fun ExportVideoCard(
+    isExporting: Boolean,
+    exportProgress: Float,
+    exportStage: String,
+    onExportClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("export_video_card"),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Navy800),
+        border = androidx.compose.foundation.BorderStroke(1.dp, PurpleAccent.copy(alpha = 0.5f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Brush.linearGradient(listOf(PurpleAccent, MagentaAccent))),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SaveAlt,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "حفظ الفيديو بدون موسيقى في الهاتف",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimaryDark
+                        )
+                        Text(
+                            text = "تصدير فيديو MP4 بالصوت البشري فقط إلى مجلد الأفلام (Movies)",
+                            fontSize = 11.sp,
+                            color = TextSecondaryDark
+                        )
+                    }
+                }
+            }
+
+            if (isExporting) {
+                Spacer(modifier = Modifier.height(14.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = exportStage.ifBlank { "جارٍ التصدير..." },
+                        fontSize = 11.sp,
+                        color = PurpleAccent,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1
+                    )
+                    Text(
+                        text = "${(exportProgress * 100).toInt()}%",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = PurpleAccent
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                LinearProgressIndicator(
+                    progress = { exportProgress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .testTag("export_progress_bar"),
+                    color = PurpleAccent,
+                    trackColor = Navy600
+                )
+            } else {
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = onExportClick,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("export_video_button"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = PurpleAccent,
+                        contentColor = Color.White
+                    ),
+                    contentPadding = PaddingValues(vertical = 12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "تصدير وحفظ الفيديو في ذاكرة الهاتف",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ExportSuccessDialog(
+    fileName: String,
+    videoUri: Uri?,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = EmeraldSuccess,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "تم تصدير الفيديو بنجاح!",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimaryDark
+                )
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "تم حفظ الفيديو المكتوم الموسيقى (بصوت بشري نقي فقط) في ذاكرة هاتفك داخل مجلد الأفلام (Movies/VocalKeep).",
+                    fontSize = 13.sp,
+                    color = TextPrimaryDark,
+                    lineHeight = 18.sp
+                )
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Navy900,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Navy700),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = fileName,
+                        fontSize = 11.sp,
+                        color = CyanAccent,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (videoUri != null) {
+                    OutlinedButton(
+                        onClick = {
+                            try {
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "video/mp4"
+                                    putExtra(Intent.EXTRA_STREAM, videoUri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "مشاركة الفيديو المكتوم الموسيقى"))
+                            } catch (e: Exception) {
+                                android.util.Log.e("ExportSuccessDialog", "Cannot share video", e)
+                            }
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, PurpleAccent),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = PurpleAccent)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("مشاركة")
+                    }
+
+                    Button(
+                        onClick = {
+                            try {
+                                val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(videoUri, "video/mp4")
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(viewIntent)
+                            } catch (e: Exception) {
+                                android.util.Log.e("ExportSuccessDialog", "Cannot open video", e)
+                            }
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldSuccess, contentColor = Navy900)
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("فتح الفيديو")
+                    }
+                } else {
+                    Button(
+                        onClick = onDismiss,
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = CyanAccent, contentColor = Navy900)
+                    ) {
+                        Text("تم")
+                    }
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("إغلاق", color = TextSecondaryDark)
+            }
+        },
+        containerColor = Navy800
+    )
 }
 
 @Composable

@@ -41,10 +41,17 @@ data class VideoPlayerUiState(
     val processingProgress: Float = 0f,
     val isSeparated: Boolean = false,
     val isCached: Boolean = false,
+    val delayPlaybackUntilBuffer: Boolean = true,
     val totalCacheSizeBytes: Long = 0L,
     val vocalVolume: Float = 1.0f,
     val bgmVolume: Float = 0.0f,
     val playbackSpeed: Float = 1.0f,
+    val isExporting: Boolean = false,
+    val exportProgress: Float = 0f,
+    val exportStage: String = "",
+    val exportedVideoUri: Uri? = null,
+    val exportedVideoName: String? = null,
+    val showExportSuccessDialog: Boolean = false,
     val errorMessage: String? = null,
     val infoMessage: String? = null,
     val isFullscreen: Boolean = false,
@@ -62,6 +69,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val playerController = PlayerController(context, viewModelScope)
     private val audioExtractor = AudioExtractor(context)
     private val audioSeparator = AudioSeparator(context)
+    private val videoExportMuxer = com.example.audio.VideoExportMuxer(context)
     private val cacheManager = AudioCacheManager(context)
 
     private val _uiState = MutableStateFlow(VideoPlayerUiState())
@@ -72,6 +80,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var accompanimentWavFile: File? = null
 
     private var processingJob: Job? = null
+    private var exportJob: Job? = null
 
     init {
         // Clean up any stale temp files from previous sessions
@@ -261,14 +270,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         selectPlaybackMode(if (enableVocalOnly) AudioPlaybackMode.VOCAL_ONLY else AudioPlaybackMode.NATIVE_ORIGINAL)
     }
 
+    fun toggleDelayPlayback(enabled: Boolean) {
+        _uiState.update { it.copy(delayPlaybackUntilBuffer = enabled) }
+    }
+
     private fun processAudioAndEnableVocalOnly(videoUri: Uri) {
         processingJob?.cancel()
+
+        // If user wants to delay playback until buffer cache starts, pause video during processing
+        val shouldDelay = _uiState.value.delayPlaybackUntilBuffer
+        if (shouldDelay) {
+            playerController.pause()
+        }
+
         processingJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 _uiState.update {
                     it.copy(
                         isProcessing = true,
-                        processingStage = "جارٍ استخراج الصوت وعزله (قد يستغرق بعض الوقت للتخزين المؤقت)...",
+                        processingStage = if (shouldDelay)
+                            "تم إيقاف التشغيل مؤقتاً... جارٍ التخزين المؤقت وعزل الصوت (سيبدأ تلقائياً فور الاكتمال)"
+                        else
+                            "جارٍ استخراج الصوت وعزله (قد يستغرق بعض الوقت للتخزين المؤقت)...",
                         processingProgress = 0.05f,
                         errorMessage = null
                     )
@@ -314,7 +337,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Step 2: Separate Audio Stems (Vocal vs Instrumental)
                 _uiState.update {
                     it.copy(
-                        processingStage = "جارٍ عزل الصوت البشري وكتم الآلات الموسيقية...",
+                        processingStage = "جارٍ عزل الصوت البشري بالذكاء الاصطناعي وكتم الآلات الموسيقية...",
                         processingProgress = 0.45f
                     )
                 }
@@ -326,7 +349,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     onProgress = { progress ->
                         _uiState.update {
                             it.copy(
-                                processingStage = "تخزين ومعالجة الصوت البشري (${(progress * 100).toInt()}%)...",
+                                processingStage = "معالجة وتخزين الصوت البشري (${(progress * 100).toInt()}%)...",
                                 processingProgress = 0.40f + (progress * 0.58f)
                             )
                         }
@@ -367,9 +390,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     isCached = (savedEntry != null),
                                     playbackMode = AudioPlaybackMode.VOCAL_ONLY,
                                     isVocalOnly = true,
-                                    infoMessage = "تم الانتهاء وحفظ الصوت في الذاكرة المؤقتة بنجاح! تم كتم الآلات الموسيقية."
+                                    infoMessage = "تم الانتهاء وتخزين الصوت مؤقتاً بنجاح! تم كتم الموسيقى."
                                 )
                             }
+
+                            // Start playback automatically if delayed playback was active
+                            if (shouldDelay) {
+                                playerController.play()
+                            }
+
                             refreshCacheSize()
                         }
                     }
@@ -396,6 +425,92 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+    }
+
+    /**
+     * Saves / exports the processed video with muted instruments (vocal only)
+     * directly into the phone's public Movies / Storage folder.
+     */
+    fun exportProcessedVideo() {
+        val currentState = _uiState.value
+        val videoUri = currentState.currentVideoUri
+        val vocalFile = vocalWavFile
+
+        if (videoUri == null || vocalFile == null || !vocalFile.exists()) {
+            _uiState.update { it.copy(errorMessage = "يرجى معالجة الصوت البشري أولاً قبل التصدير.") }
+            return
+        }
+
+        exportJob?.cancel()
+        exportJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                _uiState.update {
+                    it.copy(
+                        isExporting = true,
+                        exportProgress = 0.05f,
+                        exportStage = "جارٍ إعداد تصدير الفيديو المكتوم الموسيقى...",
+                        errorMessage = null
+                    )
+                }
+
+                val title = currentState.videoTitle.ifBlank { "Video" }
+                val exportResult = videoExportMuxer.exportMutedMusicVideo(
+                    videoUri = videoUri,
+                    vocalWavFile = vocalFile,
+                    baseOutputName = title,
+                    onProgress = { progress ->
+                        _uiState.update {
+                            it.copy(
+                                exportProgress = progress,
+                                exportStage = when {
+                                    progress < 0.25f -> "جارٍ تهيئة مسارات الوسائط وتشفير الصوت البشري AAC..."
+                                    progress < 0.60f -> "جارٍ كتابة الصوت المكتوم الموسيقى (${(progress * 100).toInt()}%)..."
+                                    progress < 0.95f -> "جارٍ دمج مسار الفيديو الأصلي بدون فقدان للجودة (${(progress * 100).toInt()}%)..."
+                                    else -> "جارٍ حفظ ملف الفيديو في مجلد الأفلام (Movies/VocalKeep)..."
+                                }
+                            )
+                        }
+                    }
+                )
+
+                withContext(Dispatchers.Main) {
+                    when (exportResult) {
+                        is com.example.audio.ExportResult.Success -> {
+                            _uiState.update {
+                                it.copy(
+                                    isExporting = false,
+                                    exportProgress = 1.0f,
+                                    exportedVideoUri = exportResult.fileUri,
+                                    exportedVideoName = exportResult.filePath,
+                                    showExportSuccessDialog = true,
+                                    infoMessage = "تم حفظ الفيديو المكتوم الموسيقى في ذاكرة الهاتف بنجاح!"
+                                )
+                            }
+                        }
+                        is com.example.audio.ExportResult.Error -> {
+                            _uiState.update {
+                                it.copy(
+                                    isExporting = false,
+                                    errorMessage = exportResult.message
+                                )
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Export error: ${e.message}", e)
+                _uiState.update {
+                    it.copy(
+                        isExporting = false,
+                        errorMessage = "فشل تصدير الفيديو: ${e.localizedMessage ?: e.javaClass.simpleName}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun dismissExportDialog() {
+        _uiState.update { it.copy(showExportSuccessDialog = false) }
     }
 
     fun clearAllAudioCache() {

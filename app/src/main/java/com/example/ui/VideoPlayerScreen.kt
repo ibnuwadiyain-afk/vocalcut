@@ -99,6 +99,14 @@ fun VideoPlayerScreen(
         InfoDialog(onDismiss = { showInfoDialog = false })
     }
 
+    if (uiState.showExportSuccessDialog) {
+        ExportSuccessDialog(
+            fileName = uiState.exportedVideoName ?: "VocalOnly_Video.mp4",
+            videoUri = uiState.exportedVideoUri,
+            onDismiss = { viewModel.dismissExportDialog() }
+        )
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -391,10 +399,22 @@ fun VideoPlayerScreen(
                         isProcessing = uiState.isProcessing,
                         isSeparated = uiState.isSeparated,
                         isCached = uiState.isCached,
+                        delayPlaybackUntilBuffer = uiState.delayPlaybackUntilBuffer,
+                        onToggleDelayPlayback = { viewModel.toggleDelayPlayback(it) },
                         onSelectMode = { mode ->
                             viewModel.selectPlaybackMode(mode)
                         }
                     )
+
+                    // Export Processed Music-Muted Video to Phone Storage
+                    if (uiState.isSeparated || uiState.isCached || uiState.isExporting) {
+                        ExportVideoCard(
+                            isExporting = uiState.isExporting,
+                            exportProgress = uiState.exportProgress,
+                            exportStage = uiState.exportStage,
+                            onExportClick = { viewModel.exportProcessedVideo() }
+                        )
+                    }
 
                     // Cache Status & Storage Management Bar
                     if (uiState.totalCacheSizeBytes > 0L) {
