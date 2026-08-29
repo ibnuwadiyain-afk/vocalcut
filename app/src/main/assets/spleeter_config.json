@@ -1,9 +1,0 @@
-{
-  "model_name": "spleeter_2stems_lite",
-  "sample_rate": 16000,
-  "channels": 1,
-  "fft_size": 1024,
-  "hop_size": 256,
-  "target_stems": ["vocals", "accompaniment"],
-  "version": "1.0.0"
-}
