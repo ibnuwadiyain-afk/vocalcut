@@ -306,38 +306,25 @@ fun VideoPlayerScreen(
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = "اختر فيديو من جهازك أو جرب المقطع التوضيحي",
+                                        text = "اختر مقطع فيديو من ذاكرة الهاتف للبدء في تشغيله وعزل الصوت",
                                         fontSize = 12.sp,
                                         color = TextSecondaryDark,
                                         textAlign = TextAlign.Center
                                     )
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Button(
-                                            onClick = { videoPickerLauncher.launch("video/*") },
-                                            modifier = Modifier.testTag("empty_pick_video_btn"),
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = CyanAccent,
-                                                contentColor = Navy900
-                                            ),
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                        ) {
-                                            Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(16.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("اختيار فيديو", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                        }
-
-                                        OutlinedButton(
-                                            onClick = { viewModel.loadDemoSample() },
-                                            modifier = Modifier.testTag("empty_demo_video_btn"),
-                                            border = androidx.compose.foundation.BorderStroke(1.dp, PurpleAccent),
-                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = PurpleAccent),
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                        ) {
-                                            Icon(Icons.Default.PlayCircleOutline, contentDescription = null, modifier = Modifier.size(16.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("تشغيل Demo", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                        }
+                                    Spacer(modifier = Modifier.height(14.dp))
+                                    Button(
+                                        onClick = { videoPickerLauncher.launch("video/*") },
+                                        modifier = Modifier.testTag("empty_pick_video_btn"),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = CyanAccent,
+                                            contentColor = Navy900
+                                        ),
+                                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp)
+                                    ) {
+                                        Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("اختيار ملف فيديو", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -496,42 +483,23 @@ fun VideoPlayerScreen(
                         )
                     }
 
-                    // Quick Action Buttons Footer
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    // Quick Action Button Footer
+                    Button(
+                        onClick = { videoPickerLauncher.launch("video/*") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("footer_choose_video_btn"),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Navy700,
+                            contentColor = CyanAccent
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, CyanDark),
+                        contentPadding = PaddingValues(vertical = 14.dp)
                     ) {
-                        OutlinedButton(
-                            onClick = { videoPickerLauncher.launch("video/*") },
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("footer_choose_video_btn"),
-                            shape = RoundedCornerShape(12.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, CyanDark),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = CyanAccent),
-                            contentPadding = PaddingValues(vertical = 12.dp)
-                        ) {
-                            Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("اختيار فيديو آخر", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        }
-
-                        FilledTonalButton(
-                            onClick = { viewModel.loadDemoSample() },
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("footer_demo_sample_btn"),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = Navy700,
-                                contentColor = PurpleAccent
-                            ),
-                            contentPadding = PaddingValues(vertical = 12.dp)
-                        ) {
-                            Icon(Icons.Default.AudioFile, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("مقطع تجريبي Demo", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        }
+                        Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("اختيار مقطع فيديو آخر", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     }
 
                     Spacer(modifier = Modifier.height(20.dp))

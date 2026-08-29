@@ -153,77 +153,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun loadDemoSample() {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                _uiState.update {
-                    it.copy(
-                        isProcessing = true,
-                        processingStage = "جارٍ إنشاء المقطع التوضيحي (Demo)...",
-                        processingProgress = 0.1f,
-                        errorMessage = null
-                    )
-                }
-
-                val tempDir = File(context.cacheDir, "vocal_keep_demo").apply { mkdirs() }
-                val demoAudioWav = File(tempDir, "demo_mixed_audio.wav")
-                WavAudioUtil.createSampleDemoAudio(demoAudioWav, durationSeconds = 16)
-
-                val demoUri = Uri.fromFile(demoAudioWav)
-                val cachedEntry = cacheManager.getCachedEntry(demoUri)
-
-                withContext(Dispatchers.Main) {
-                    if (cachedEntry != null) {
-                        val cachedVocal = File(cachedEntry.vocalFilePath)
-                        val cachedBgm = File(cachedEntry.accompanimentFilePath)
-                        vocalWavFile = cachedVocal
-                        accompanimentWavFile = cachedBgm
-
-                        playerController.loadVideo(demoUri)
-                        playerController.setupIsolatedTracks(cachedVocal, cachedBgm)
-
-                        _uiState.update {
-                            it.copy(
-                                currentVideoUri = demoUri,
-                                videoTitle = "مقطع توضيحي تجريبي (Demo Audio/Video)",
-                                isVideoLoaded = true,
-                                playbackMode = AudioPlaybackMode.NATIVE_ORIGINAL,
-                                isVocalOnly = false,
-                                isProcessing = false,
-                                isSeparated = true,
-                                isCached = true,
-                                infoMessage = "تم تحميل المقطع التجريبي (متوفر في الذاكرة المؤقتة)."
-                            )
-                        }
-                    } else {
-                        _uiState.update {
-                            it.copy(
-                                currentVideoUri = demoUri,
-                                videoTitle = "مقطع توضيحي تجريبي (Demo Audio/Video)",
-                                isVideoLoaded = true,
-                                playbackMode = AudioPlaybackMode.NATIVE_ORIGINAL,
-                                isVocalOnly = false,
-                                isProcessing = false,
-                                isSeparated = false,
-                                isCached = false,
-                                infoMessage = "تم تحميل المقطع التجريبي بنجاح."
-                            )
-                        }
-                        playerController.loadVideo(demoUri)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error generating demo: ${e.message}", e)
-                _uiState.update {
-                    it.copy(
-                        isProcessing = false,
-                        errorMessage = "تعذر إنشاء المقطع التجريبي: ${e.localizedMessage}"
-                    )
-                }
-            }
-        }
-    }
-
     fun selectPlaybackMode(mode: AudioPlaybackMode) {
         val currentState = _uiState.value
         if (!currentState.isVideoLoaded || currentState.currentVideoUri == null) {
@@ -303,24 +232,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val accompanimentWav = File(tempDir, "accompaniment_isolated.wav")
 
                 // Step 1: Extract Audio Track
-                val isExtracted = if (videoUri.scheme == "file" && videoUri.path?.endsWith(".wav") == true) {
-                    // Already WAV (e.g. demo)
-                    File(videoUri.path!!).copyTo(rawWav, overwrite = true)
-                    true
-                } else {
-                    audioExtractor.extractAudioToWav(
-                        videoUri = videoUri,
-                        outputWavFile = rawWav,
-                        onProgress = { progress ->
-                            _uiState.update {
-                                it.copy(
-                                    processingStage = "استخراج الصوت من الفيديو (${(progress * 100).toInt()}%)...",
-                                    processingProgress = progress * 0.40f
-                                )
-                            }
+                val isExtracted = audioExtractor.extractAudioToWav(
+                    videoUri = videoUri,
+                    outputWavFile = rawWav,
+                    onProgress = { progress ->
+                        _uiState.update {
+                            it.copy(
+                                processingStage = "استخراج الصوت من الفيديو (${(progress * 100).toInt()}%)...",
+                                processingProgress = progress * 0.40f
+                            )
                         }
-                    )
-                }
+                    }
+                )
 
                 if (!isExtracted || !rawWav.exists()) {
                     _uiState.update {
