@@ -12,9 +12,11 @@ class AudioSeparator(private val context: Context) {
         private const val TAG = "AudioSeparator"
     }
 
+    private val spleeterEngine = SpleeterTfliteEngine(context)
+
     /**
      * Separates the input mixed audio WAV into Vocal and Accompaniment WAV files
-     * using on-device streaming DSP spectral masking with low memory overhead.
+     * using the pre-trained Spleeter Neural Network model with DSP fallback.
      */
     suspend fun separateAudio(
         inputWavFile: File,
@@ -29,17 +31,40 @@ class AudioSeparator(private val context: Context) {
 
             onProgress(0.05f)
 
-            // Perform streaming separation
-            val durationMs = WavAudioUtil.separateWavStemsStreaming(
-                inputWavFile = inputWavFile,
-                outputVocalWav = outputVocalWav,
-                outputAccompanimentWav = outputAccompanimentWav,
-                sampleRate = WavAudioUtil.SAMPLE_RATE_44K,
-                onProgress = { stepProgress ->
-                    val mapped = 0.05f + (stepProgress * 0.95f)
-                    onProgress(mapped)
+            var usedNeuralModel = false
+            var durationMs = 0L
+
+            // 1. Try Pretrained Spleeter Neural Model
+            if (spleeterEngine.isModelLoaded()) {
+                Log.i(TAG, "Running Spleeter neural model separation...")
+                val neuralSuccess = spleeterEngine.separate(
+                    inputWavFile = inputWavFile,
+                    outputVocalWav = outputVocalWav,
+                    outputAccompanimentWav = outputAccompanimentWav,
+                    onProgress = { p -> onProgress(0.05f + (p * 0.95f)) }
+                )
+
+                if (neuralSuccess && outputVocalWav.exists() && outputVocalWav.length() > 44) {
+                    usedNeuralModel = true
+                    durationMs = (outputVocalWav.length() - 44) * 1000L / (WavAudioUtil.SAMPLE_RATE_44K * 2)
+                    Log.i(TAG, "Spleeter neural separation completed successfully!")
                 }
-            )
+            }
+
+            // 2. If Neural model is not loaded or failed, run DSP harmonic mask fallback
+            if (!usedNeuralModel) {
+                Log.i(TAG, "Running fallback streaming DSP separation...")
+                durationMs = WavAudioUtil.separateWavStemsStreaming(
+                    inputWavFile = inputWavFile,
+                    outputVocalWav = outputVocalWav,
+                    outputAccompanimentWav = outputAccompanimentWav,
+                    sampleRate = WavAudioUtil.SAMPLE_RATE_44K,
+                    onProgress = { stepProgress ->
+                        val mapped = 0.05f + (stepProgress * 0.95f)
+                        onProgress(mapped)
+                    }
+                )
+            }
 
             if (!outputVocalWav.exists() || outputVocalWav.length() <= 44) {
                 return@withContext SeparationResult.Error("فشل إنشاء ملف الصوت المفصول.")
@@ -58,7 +83,7 @@ class AudioSeparator(private val context: Context) {
     }
 
     fun release() {
-        // No heavy resources held
+        spleeterEngine.close()
     }
 }
 
