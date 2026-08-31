@@ -522,12 +522,13 @@ fun VideoPlayerScreen(
                         )
                     }
 
-                    // Processing Progress Card (Separation via Spleeter)
+                    // Processing Progress Card (Separation via Spleeter or UVR MDX-Net)
                     if (uiState.isProcessing) {
                         ProcessingCard(
                             stage = uiState.processingStage,
                             progress = uiState.processingProgress,
-                            elapsedSeconds = uiState.processingElapsedSeconds
+                            elapsedSeconds = uiState.processingElapsedSeconds,
+                            engine = uiState.selectedEngine
                         )
                     }
 

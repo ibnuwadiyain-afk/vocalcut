@@ -799,15 +799,20 @@ fun ProcessingCard(
     stage: String,
     progress: Float,
     elapsedSeconds: Int = 0,
+    engine: SeparationEngine = SeparationEngine.SPLEETER_FAST,
     modifier: Modifier = Modifier
 ) {
+    val isUvr = (engine == SeparationEngine.UVR_MDXNET)
+    val accentColor = if (isUvr) PurpleAccent else CyanAccent
+    val engineTitle = if (isUvr) "معالجة عزل الصوت (UVR MDX-Net Engine)" else "معالجة عزل الصوت (Spleeter Neural Engine)"
+
     Card(
         modifier = modifier
             .fillMaxWidth()
             .testTag("processing_card"),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Navy800),
-        border = androidx.compose.foundation.BorderStroke(1.dp, CyanAccent.copy(alpha = 0.4f))
+        border = androidx.compose.foundation.BorderStroke(1.dp, accentColor.copy(alpha = 0.4f))
     ) {
         Column(
             modifier = Modifier
@@ -822,21 +827,21 @@ fun ProcessingCard(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "معالجة عزل الصوت (Spleeter Neural Engine)",
+                        text = engineTitle,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
-                        color = CyanAccent
+                        color = accentColor
                     )
                 }
 
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = CyanAccent.copy(alpha = 0.15f)
+                    color = accentColor.copy(alpha = 0.15f)
                 ) {
                     Text(
                         text = "${(progress * 100).toInt()}%",
                         fontWeight = FontWeight.Bold,
-                        color = CyanAccent,
+                        color = accentColor,
                         fontSize = 13.sp,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                     )
@@ -852,7 +857,7 @@ fun ProcessingCard(
                     .height(8.dp)
                     .clip(RoundedCornerShape(4.dp))
                     .testTag("processing_progress_bar"),
-                color = CyanAccent,
+                color = accentColor,
                 trackColor = Navy600
             )
 
@@ -870,7 +875,7 @@ fun ProcessingCard(
                     CircularProgressIndicator(
                         modifier = Modifier.size(14.dp),
                         strokeWidth = 2.dp,
-                        color = CyanAccent
+                        color = accentColor
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
@@ -894,7 +899,7 @@ fun ProcessingCard(
                         Icon(
                             imageVector = Icons.Default.Timer,
                             contentDescription = null,
-                            tint = CyanAccent,
+                            tint = accentColor,
                             modifier = Modifier.size(13.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
@@ -902,7 +907,7 @@ fun ProcessingCard(
                             text = "المستغرق: ${formatSeconds(elapsedSeconds)}",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = CyanAccent
+                            color = accentColor
                         )
                     }
                 }
