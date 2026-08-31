@@ -38,6 +38,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.ui.PlayerView
+import com.example.export.ExportType
 import com.example.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -107,34 +108,43 @@ fun VideoPlayerScreen(
     }
 
     if (uiState.showExportSuccessDialog) {
+        val isVideo = (uiState.lastExportType == ExportType.VIDEO_MP4)
+        val mimeType = if (isVideo) "video/mp4" else "audio/wav"
+
         ExportSuccessDialog(
-            fileName = uiState.lastExportedFileName ?: "video.mp4",
-            filePath = uiState.lastExportedFilePath ?: "Movies/VocalKeep",
-            onOpenVideo = {
+            fileName = uiState.lastExportedFileName ?: if (isVideo) "video_vocal.mp4" else "voice_only.wav",
+            filePath = uiState.lastExportedFilePath ?: if (isVideo) "Movies/VocalKeep" else "Music/VocalKeep",
+            exportType = uiState.lastExportType,
+            onOpenMedia = {
                 uiState.lastExportedUri?.let { uri ->
                     try {
                         val intent = Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(uri, "video/mp4")
+                            setDataAndType(uri, mimeType)
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         }
-                        context.startActivity(Intent.createChooser(intent, "تشغيل الفيديو"))
+                        context.startActivity(Intent.createChooser(intent, if (isVideo) "تشغيل الفيديو" else "تشغيل الصوت"))
                     } catch (e: Exception) {
-                        Toast.makeText(context, "تعذر تشغيل الفيديو خارجياً: ${e.message}", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "تعذر تشغيل الملف خارجياً: ${e.message}", Toast.LENGTH_SHORT).show()
                     }
                 }
                 viewModel.dismissExportDialog()
             },
-            onShareVideo = {
+            onShareMedia = {
                 uiState.lastExportedUri?.let { uri ->
                     try {
                         val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                            type = "video/mp4"
+                            type = mimeType
                             putExtra(Intent.EXTRA_STREAM, uri)
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         }
-                        context.startActivity(Intent.createChooser(shareIntent, "مشاركة مقطع الفيديو بدون موسيقى"))
+                        context.startActivity(
+                            Intent.createChooser(
+                                shareIntent,
+                                if (isVideo) "مشاركة مقطع الفيديو بدون موسيقى" else "مشاركة ملف الصوت البشري"
+                            )
+                        )
                     } catch (e: Exception) {
-                        Toast.makeText(context, "تعذر مشاركة الفيديو: ${e.message}", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "تعذر مشاركة الملف: ${e.message}", Toast.LENGTH_SHORT).show()
                     }
                 }
             },
@@ -485,11 +495,12 @@ fun VideoPlayerScreen(
                         onToggleBackgroundPlay = { viewModel.toggleBackgroundPlay(it) }
                     )
 
-                    // Export Video Card (Available when video is loaded)
+                    // Export Action Card (Video MP4 or Voice Only WAV)
                     if (uiState.isVideoLoaded) {
                         ExportActionCard(
                             isExporting = uiState.isExporting,
-                            onExportClicked = { viewModel.exportMusicMutedVideo() }
+                            onExportVideo = { viewModel.startExport(ExportType.VIDEO_MP4) },
+                            onExportVoiceOnly = { viewModel.startExport(ExportType.VOICE_ONLY_WAV) }
                         )
                     }
 
@@ -497,7 +508,8 @@ fun VideoPlayerScreen(
                     if (uiState.isExporting) {
                         ExportingCard(
                             stage = uiState.exportStage,
-                            progress = uiState.exportProgress
+                            progress = uiState.exportProgress,
+                            elapsedSeconds = uiState.exportElapsedSeconds
                         )
                     }
 
@@ -505,7 +517,8 @@ fun VideoPlayerScreen(
                     if (uiState.isProcessing) {
                         ProcessingCard(
                             stage = uiState.processingStage,
-                            progress = uiState.processingProgress
+                            progress = uiState.processingProgress,
+                            elapsedSeconds = uiState.processingElapsedSeconds
                         )
                     }
 

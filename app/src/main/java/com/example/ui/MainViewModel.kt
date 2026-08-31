@@ -10,22 +10,22 @@ import androidx.lifecycle.viewModelScope
 import com.example.audio.AudioExtractor
 import com.example.audio.AudioSeparator
 import com.example.audio.SeparationResult
-import com.example.audio.WavAudioUtil
 import com.example.data.AudioCacheManager
-import com.example.data.CachedAudioEntry
 import com.example.export.ExportResult
+import com.example.export.ExportType
 import com.example.export.VideoExporter
 import com.example.player.PlayerController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
 
 enum class AudioPlaybackMode {
     NATIVE_ORIGINAL, // Standard native original video audio (immediate playback, no buffering/separation)
@@ -41,6 +41,7 @@ data class VideoPlayerUiState(
     val isProcessing: Boolean = false,
     val processingStage: String = "",
     val processingProgress: Float = 0f,
+    val processingElapsedSeconds: Int = 0,
     val isSeparated: Boolean = false,
     val isCached: Boolean = false,
     val totalCacheSizeBytes: Long = 0L,
@@ -55,10 +56,13 @@ data class VideoPlayerUiState(
     val isExporting: Boolean = false,
     val exportProgress: Float = 0f,
     val exportStage: String = "",
+    val exportElapsedSeconds: Int = 0,
     val lastExportedFileName: String? = null,
     val lastExportedFilePath: String? = null,
     val lastExportedUri: Uri? = null,
-    val showExportSuccessDialog: Boolean = false
+    val lastExportType: ExportType = ExportType.VIDEO_MP4,
+    val showExportSuccessDialog: Boolean = false,
+    val showExportOptionsSheet: Boolean = false
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -83,9 +87,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var accompanimentWavFile: File? = null
 
     private var processingJob: Job? = null
+    private var processingTimerJob: Job? = null
+    private var exportJob: Job? = null
+    private var exportTimerJob: Job? = null
 
     init {
-        // Clean up any stale temp files from previous sessions
         cleanupTempFiles()
         refreshCacheSize()
     }
@@ -120,78 +126,76 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             currentVideoUri = uri,
                             videoTitle = displayName,
                             isVideoLoaded = true,
+                            isSeparated = true,
+                            isCached = true,
                             playbackMode = AudioPlaybackMode.NATIVE_ORIGINAL,
                             isVocalOnly = false,
                             isProcessing = false,
-                            isSeparated = true,
-                            isCached = true,
                             errorMessage = null,
-                            infoMessage = "تم العثور على الصوت المعالج في الذاكرة المؤقتة (جاهز فوراً بدون انتظار)"
+                            infoMessage = "تم العثور على ملفات الصوت المعزول في الذاكرة المحلية (Cache)!"
                         )
                     }
                 } else {
+                    playerController.loadVideo(uri)
+
                     _uiState.update {
                         it.copy(
                             currentVideoUri = uri,
                             videoTitle = displayName,
                             isVideoLoaded = true,
+                            isSeparated = false,
+                            isCached = false,
                             playbackMode = AudioPlaybackMode.NATIVE_ORIGINAL,
                             isVocalOnly = false,
                             isProcessing = false,
-                            isSeparated = false,
-                            isCached = false,
                             errorMessage = null,
-                            infoMessage = "تم تحميل الفيديو بنجاح: $displayName"
+                            infoMessage = "تم تحميل الفيديو! يمكنك تشغيل الصوت الأصلي فوراً أو اختيار 'صوت بشري فقط' لكتم الموسيقى."
                         )
                     }
-                    playerController.loadVideo(uri)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error loading video: ${e.message}", e)
+                Log.e(TAG, "Error opening video: ${e.message}", e)
                 _uiState.update {
-                    it.copy(errorMessage = "تعذر تحميل الفيديو: ${e.localizedMessage}")
+                    it.copy(errorMessage = "حدث خطأ أثناء فتح الفيديو: ${e.localizedMessage}")
                 }
             }
         }
     }
 
     fun selectPlaybackMode(mode: AudioPlaybackMode) {
-        val currentState = _uiState.value
-        if (!currentState.isVideoLoaded || currentState.currentVideoUri == null) {
-            _uiState.update { it.copy(errorMessage = "يرجى اختيار ملف فيديو أولاً.") }
+        val currentUri = _uiState.value.currentVideoUri
+        if (currentUri == null || !_uiState.value.isVideoLoaded) {
+            _uiState.update { it.copy(errorMessage = "يرجى فتح ملف فيديو أولاً.") }
             return
         }
 
         when (mode) {
             AudioPlaybackMode.NATIVE_ORIGINAL -> {
-                // Instantly switch back to native original audio
+                processingJob?.cancel()
+                processingTimerJob?.cancel()
+                playerController.setVocalOnlyMode(false)
                 _uiState.update {
                     it.copy(
                         playbackMode = AudioPlaybackMode.NATIVE_ORIGINAL,
-                        isVocalOnly = false
+                        isVocalOnly = false,
+                        isProcessing = false,
+                        infoMessage = "تم التبديل إلى الصوت الأصلي المباشر (Native Audio)"
                     )
                 }
-                playerController.setVocalOnlyMode(false)
             }
             AudioPlaybackMode.VOCAL_ONLY -> {
-                if (currentState.isSeparated && vocalWavFile != null && vocalWavFile!!.exists()) {
-                    // Already processed and cached, instant switch
-                    _uiState.update {
-                        it.copy(
-                            playbackMode = AudioPlaybackMode.VOCAL_ONLY,
-                            isVocalOnly = true
-                        )
-                    }
+                if (_uiState.value.isSeparated && vocalWavFile?.exists() == true && accompanimentWavFile?.exists() == true) {
                     playerController.setVocalOnlyMode(true)
-                } else {
-                    // Process audio & isolate vocal with buffering/progress feedback
                     _uiState.update {
                         it.copy(
                             playbackMode = AudioPlaybackMode.VOCAL_ONLY,
-                            isVocalOnly = true
+                            isVocalOnly = true,
+                            isProcessing = false,
+                            infoMessage = "تم تفعيل عزل الصوت البشري (تم كتم الآلات الموسيقية بنجاح)"
                         )
                     }
-                    processAudioAndEnableVocalOnly(currentState.currentVideoUri)
+                } else {
+                    processAudioAndEnableVocalOnly(currentUri)
                 }
             }
         }
@@ -203,12 +207,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun processAudioAndEnableVocalOnly(videoUri: Uri) {
         processingJob?.cancel()
+        processingTimerJob?.cancel()
+
+        // Start live elapsed timer
+        _uiState.update { it.copy(processingElapsedSeconds = 0) }
+        processingTimerJob = viewModelScope.launch(Dispatchers.Default) {
+            val startTime = System.currentTimeMillis()
+            while (isActive) {
+                delay(1000)
+                val elapsed = ((System.currentTimeMillis() - startTime) / 1000).toInt()
+                _uiState.update { it.copy(processingElapsedSeconds = elapsed) }
+            }
+        }
+
         processingJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 _uiState.update {
                     it.copy(
                         isProcessing = true,
-                        processingStage = "جارٍ استخراج الصوت وعزله (قد يستغرق بعض الوقت للتخزين المؤقت)...",
+                        processingStage = "جارٍ استخراج الصوت وعزله بمحرك Spleeter السريع...",
                         processingProgress = 0.05f,
                         errorMessage = null
                     )
@@ -221,7 +238,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 // Step 1: Extract Audio Track
                 val isExtracted = if (videoUri.scheme == "file" && videoUri.path?.endsWith(".wav") == true) {
-                    // Already direct WAV file
                     File(videoUri.path!!).copyTo(rawWav, overwrite = true)
                     true
                 } else {
@@ -231,8 +247,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         onProgress = { progress ->
                             _uiState.update {
                                 it.copy(
-                                    processingStage = "استخراج الصوت من الفيديو (${(progress * 100).toInt()}%)...",
-                                    processingProgress = progress * 0.40f
+                                    processingStage = "استخراج صوت الفيديو (${(progress * 100).toInt()}%)...",
+                                    processingProgress = progress * 0.35f
                                 )
                             }
                         }
@@ -240,6 +256,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 if (!isExtracted || !rawWav.exists()) {
+                    processingTimerJob?.cancel()
                     _uiState.update {
                         it.copy(
                             isProcessing = false,
@@ -251,11 +268,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
 
-                // Step 2: Separate Audio Stems (Vocal vs Instrumental)
+                // Step 2: Separate Audio Stems with Spleeter Multi-core Engine
                 _uiState.update {
                     it.copy(
-                        processingStage = "جارٍ عزل الصوت البشري وكتم الآلات الموسيقية...",
-                        processingProgress = 0.45f
+                        processingStage = "عزل الصوت البشري بمحرك Spleeter المتعدد الأنوية...",
+                        processingProgress = 0.38f
                     )
                 }
 
@@ -266,16 +283,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     onProgress = { progress ->
                         _uiState.update {
                             it.copy(
-                                processingStage = "تخزين ومعالجة الصوت البشري (${(progress * 100).toInt()}%)...",
-                                processingProgress = 0.40f + (progress * 0.58f)
+                                processingStage = "معالجة وعزل الصوت البشري (${(progress * 100).toInt()}%)...",
+                                processingProgress = 0.35f + (progress * 0.63f)
                             )
                         }
                     }
                 )
 
+                processingTimerJob?.cancel()
+
                 when (separationResult) {
                     is SeparationResult.Success -> {
-                        // Persist to local cache so user never needs to process again!
                         val savedEntry = cacheManager.saveToCache(
                             uri = videoUri,
                             videoTitle = _uiState.value.videoTitle,
@@ -307,7 +325,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     isCached = (savedEntry != null),
                                     playbackMode = AudioPlaybackMode.VOCAL_ONLY,
                                     isVocalOnly = true,
-                                    infoMessage = "تم الانتهاء وحفظ الصوت في الذاكرة المؤقتة بنجاح! تم كتم الآلات الموسيقية."
+                                    infoMessage = "تم الانتهاء بنجاح! تم كتم الآلات الموسيقية وعزل الصوت البشري."
                                 )
                             }
                             refreshCacheSize()
@@ -325,6 +343,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             } catch (t: Throwable) {
+                processingTimerJob?.cancel()
                 Log.e(TAG, "Audio processing failed: ${t.message}", t)
                 _uiState.update {
                     it.copy(
@@ -338,6 +357,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setVocalVolume(volume: Float) {
+        val clamped = volume.coerceIn(0f, 1.5f)
+        _uiState.update { it.copy(vocalVolume = clamped) }
+        playerController.setVocalVolume(clamped)
+    }
+
+    fun setBgmVolume(volume: Float) {
+        val clamped = volume.coerceIn(0f, 1.5f)
+        _uiState.update { it.copy(bgmVolume = clamped) }
+        playerController.setBgmVolume(clamped)
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        val clamped = speed.coerceIn(0.25f, 2.0f)
+        _uiState.update { it.copy(playbackSpeed = clamped) }
+        playerController.setPlaybackSpeed(clamped)
+    }
+
+    fun toggleFullscreen(fullscreen: Boolean? = null) {
+        _uiState.update {
+            it.copy(isFullscreen = fullscreen ?: !it.isFullscreen)
+        }
+    }
+
+    fun toggleAudioVisualizer() {
+        _uiState.update {
+            it.copy(isAudioVisualizerActive = !it.isAudioVisualizerActive)
+        }
+    }
+
     fun toggleBackgroundPlay(enabled: Boolean? = null) {
         _uiState.update {
             val newVal = enabled ?: !it.isBackgroundPlayEnabled
@@ -348,7 +397,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun exportMusicMutedVideo() {
+    fun showExportOptions(show: Boolean) {
+        _uiState.update { it.copy(showExportOptionsSheet = show) }
+    }
+
+    /**
+     * Exports either:
+     * 1. ExportType.VIDEO_MP4 (Original Video Muxed with Vocal Audio)
+     * 2. ExportType.VOICE_ONLY_WAV (Vocal Audio file only)
+     */
+    fun startExport(type: ExportType) {
         val currentState = _uiState.value
         val videoUri = currentState.currentVideoUri
         if (videoUri == null || !currentState.isVideoLoaded) {
@@ -361,18 +419,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        viewModelScope.launch(Dispatchers.IO) {
+        showExportOptions(false)
+        exportJob?.cancel()
+        exportTimerJob?.cancel()
+
+        // Start elapsed timer for export
+        _uiState.update { it.copy(exportElapsedSeconds = 0) }
+        exportTimerJob = viewModelScope.launch(Dispatchers.Default) {
+            val startTime = System.currentTimeMillis()
+            while (isActive) {
+                delay(1000)
+                val elapsed = ((System.currentTimeMillis() - startTime) / 1000).toInt()
+                _uiState.update { it.copy(exportElapsedSeconds = elapsed) }
+            }
+        }
+
+        exportJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 _uiState.update {
                     it.copy(
                         isExporting = true,
                         exportProgress = 0.05f,
-                        exportStage = "جارٍ فحص ومعالجة المسار الصوتي المعزول...",
+                        exportStage = "جارٍ فحص المسار الصوتي المعزول...",
                         errorMessage = null
                     )
                 }
 
-                // Ensure vocal audio is isolated via Spleeter 2-stem engine first
+                // Ensure vocal audio is isolated via Spleeter engine
                 var activeVocalFile = vocalWavFile
                 if (activeVocalFile == null || !activeVocalFile.exists()) {
                     val cachedEntry = cacheManager.getCachedEntry(videoUri)
@@ -386,7 +459,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.update {
                         it.copy(
                             exportProgress = 0.1f,
-                            exportStage = "استخراج وعزل الصوت البشري بمحرك Spleeter قبل التصدير..."
+                            exportStage = "عزل الصوت البشري بمحرك Spleeter قبل التصدير..."
                         )
                     }
 
@@ -409,6 +482,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
 
                     if (!extracted || !rawWav.exists()) {
+                        exportTimerJob?.cancel()
                         _uiState.update {
                             it.copy(
                                 isExporting = false,
@@ -438,6 +512,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             vocalWavFile = activeVocalFile
                         }
                         is SeparationResult.Error -> {
+                            exportTimerJob?.cancel()
                             _uiState.update {
                                 it.copy(
                                     isExporting = false,
@@ -451,6 +526,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 val currentVocal = activeVocalFile
                 if (currentVocal == null || !currentVocal.exists()) {
+                    exportTimerJob?.cancel()
                     _uiState.update {
                         it.copy(
                             isExporting = false,
@@ -460,20 +536,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
 
-                // Proceed with Muxing video + vocal audio into internal storage / MediaStore
-                val exportResult = videoExporter.exportMutedVideo(
-                    sourceVideoUri = videoUri,
-                    vocalWavFile = currentVocal,
-                    baseFileName = currentState.videoTitle,
-                    onProgress = { progress, stage ->
-                        _uiState.update {
-                            it.copy(
-                                exportProgress = 0.35f + (progress * 0.65f),
-                                exportStage = stage
-                            )
+                // Proceed with Export based on selected type
+                val exportResult = if (type == ExportType.VIDEO_MP4) {
+                    videoExporter.exportMutedVideo(
+                        sourceVideoUri = videoUri,
+                        vocalWavFile = currentVocal,
+                        baseFileName = currentState.videoTitle,
+                        onProgress = { progress, stage ->
+                            _uiState.update {
+                                it.copy(
+                                    exportProgress = 0.35f + (progress * 0.65f),
+                                    exportStage = stage
+                                )
+                            }
                         }
-                    }
-                )
+                    )
+                } else {
+                    videoExporter.exportVoiceOnly(
+                        vocalWavFile = currentVocal,
+                        baseFileName = currentState.videoTitle,
+                        onProgress = { progress, stage ->
+                            _uiState.update {
+                                it.copy(
+                                    exportProgress = progress,
+                                    exportStage = stage
+                                )
+                            }
+                        }
+                    )
+                }
+
+                exportTimerJob?.cancel()
 
                 when (exportResult) {
                     is ExportResult.Success -> {
@@ -484,8 +577,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 lastExportedFileName = exportResult.fileName,
                                 lastExportedFilePath = exportResult.filePath,
                                 lastExportedUri = exportResult.outputUri,
+                                lastExportType = exportResult.exportType,
                                 showExportSuccessDialog = true,
-                                infoMessage = "تم تصدير وحفظ الفيديو بدون موسيقى بنجاح!"
+                                infoMessage = if (exportResult.exportType == ExportType.VIDEO_MP4)
+                                    "تم تصدير وحفظ الفيديو بدون موسيقى بنجاح!"
+                                else
+                                    "تم حفظ ملف الصوت البشري المعزول بنجاح!"
                             )
                         }
                     }
@@ -499,11 +596,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             } catch (e: Exception) {
+                exportTimerJob?.cancel()
                 Log.e(TAG, "Export error: ${e.message}", e)
                 _uiState.update {
                     it.copy(
                         isExporting = false,
-                        errorMessage = "حدث خطأ أثناء تصدير الفيديو: ${e.localizedMessage}"
+                        errorMessage = "حدث خطأ أثناء التصدير: ${e.localizedMessage}"
                     )
                 }
             }
@@ -522,34 +620,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.update {
                     it.copy(
                         isCached = false,
-                        infoMessage = "تم مسح جميع ملفات الذاكرة المؤقتة بنجاح."
+                        infoMessage = "تم مسح ملفات الذاكرة المؤقتة بنجاح."
                     )
-                }
-            } else {
-                _uiState.update {
-                    it.copy(errorMessage = "حدث خطأ أثناء مسح الذاكرة المؤقتة.")
                 }
             }
         }
-    }
-
-    fun setVocalVolume(volume: Float) {
-        _uiState.update { it.copy(vocalVolume = volume) }
-        playerController.setVocalVolume(volume)
-    }
-
-    fun setBgmVolume(volume: Float) {
-        _uiState.update { it.copy(bgmVolume = volume) }
-        playerController.setBgmVolume(volume)
-    }
-
-    fun setPlaybackSpeed(speed: Float) {
-        _uiState.update { it.copy(playbackSpeed = speed) }
-        playerController.setPlaybackSpeed(speed)
-    }
-
-    fun toggleFullscreen() {
-        _uiState.update { it.copy(isFullscreen = !it.isFullscreen) }
     }
 
     fun dismissError() {
@@ -561,19 +636,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun queryFileName(uri: Uri): String? {
+        var result: String? = null
         if (uri.scheme == "content") {
-            try {
-                context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (nameIndex != -1 && cursor.moveToFirst()) {
-                        return cursor.getString(nameIndex)
+            val cursor = context.contentResolver.query(uri, null, null, null, null)
+            cursor?.use {
+                if (it.moveToFirst()) {
+                    val nameIndex = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex != -1) {
+                        result = it.getString(nameIndex)
                     }
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Cannot get display name from cursor", e)
             }
         }
-        return uri.lastPathSegment
+        if (result == null) {
+            result = uri.path
+            val cut = result?.lastIndexOf('/') ?: -1
+            if (cut != -1) {
+                result = result?.substring(cut + 1)
+            }
+        }
+        return result
     }
 
     private fun cleanupCurrentMediaFiles() {
@@ -581,32 +663,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             extractedWavFile?.delete()
             vocalWavFile?.delete()
             accompanimentWavFile?.delete()
-            extractedWavFile = null
-            vocalWavFile = null
-            accompanimentWavFile = null
-        } catch (e: Exception) {
-            Log.w(TAG, "Error cleaning temp files", e)
-        }
+        } catch (_: Exception) {}
+        extractedWavFile = null
+        vocalWavFile = null
+        accompanimentWavFile = null
     }
 
     fun cleanupTempFiles() {
-        try {
-            context.cacheDir.listFiles()?.forEach { file ->
-                if (file.name.startsWith("vocal_temp_") || file.name.startsWith("vocal_keep_")) {
-                    file.deleteRecursively()
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val cacheDir = context.cacheDir
+                cacheDir.listFiles()?.forEach { file ->
+                    if (file.name.startsWith("vocal_temp_") || file.name.startsWith("export_") || file.name.startsWith("vocal_export_prep_")) {
+                        file.deleteRecursively()
+                    }
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "Temp cleanup warning", e)
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error in bulk temp cleanup", e)
         }
     }
 
     override fun onCleared() {
         super.onCleared()
         processingJob?.cancel()
+        processingTimerJob?.cancel()
+        exportJob?.cancel()
+        exportTimerJob?.cancel()
         playerController.release()
         audioSeparator.release()
         cleanupCurrentMediaFiles()
-        cleanupTempFiles()
     }
 }

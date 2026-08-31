@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.export.ExportType
 import com.example.ui.theme.*
 import kotlin.math.sin
 
@@ -580,6 +581,7 @@ fun PlaybackModeSelectorCard(
 fun ProcessingCard(
     stage: String,
     progress: Float,
+    elapsedSeconds: Int = 0,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -601,21 +603,30 @@ fun ProcessingCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "معالجة عزل الصوت (Offline)",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = CyanAccent
-                )
-                Text(
-                    text = "${(progress * 100).toInt()}%",
-                    fontWeight = FontWeight.Bold,
-                    color = CyanAccent,
-                    fontSize = 14.sp
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "معالجة عزل الصوت (Spleeter Neural Engine)",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = CyanAccent
+                    )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = CyanAccent.copy(alpha = 0.15f)
+                ) {
+                    Text(
+                        text = "${(progress * 100).toInt()}%",
+                        fontWeight = FontWeight.Bold,
+                        color = CyanAccent,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             LinearProgressIndicator(
                 progress = { progress },
@@ -628,24 +639,56 @@ fun ProcessingCard(
                 trackColor = Navy600
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Start
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                    color = CyanAccent
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = stage,
-                    fontSize = 12.sp,
-                    color = TextSecondaryDark
-                )
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = CyanAccent
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = stage,
+                        fontSize = 11.sp,
+                        color = TextSecondaryDark,
+                        maxLines = 1
+                    )
+                }
+
+                // Live Elapsed Timer
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Navy900,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Navy700)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Timer,
+                            contentDescription = null,
+                            tint = CyanAccent,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "المستغرق: ${formatSeconds(elapsedSeconds)}",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyanAccent
+                        )
+                    }
+                }
             }
         }
     }
@@ -888,7 +931,8 @@ fun BackgroundPlayCard(
 @Composable
 fun ExportActionCard(
     isExporting: Boolean,
-    onExportClicked: () -> Unit,
+    onExportVideo: () -> Unit,
+    onExportVoiceOnly: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -906,45 +950,44 @@ fun ExportActionCard(
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(Brush.linearGradient(listOf(CyanAccent, EmeraldSuccess))),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SaveAlt,
-                            contentDescription = null,
-                            tint = Navy900,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "تصدير الفيديو بدون موسيقى (Export Video)",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            color = TextPrimaryDark
-                        )
-                        Text(
-                            text = "حفظ الفيديو مع الصوت البشري المعزول فقط في مساحة التخزين",
-                            fontSize = 11.sp,
-                            color = TextSecondaryDark
-                        )
-                    }
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Brush.linearGradient(listOf(CyanAccent, EmeraldSuccess))),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SaveAlt,
+                        contentDescription = null,
+                        tint = Navy900,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "خيارات التصدير والحفظ (Export Options)",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        color = TextPrimaryDark
+                    )
+                    Text(
+                        text = "حفظ في مساحة التخزين الداخلية بدون أي موسيقى أو آلات",
+                        fontSize = 11.sp,
+                        color = TextSecondaryDark
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
+            // Two distinct export options:
+            // Option 1: Full Video MP4
             Button(
-                onClick = onExportClicked,
+                onClick = onExportVideo,
                 enabled = !isExporting,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -956,28 +999,94 @@ fun ExportActionCard(
                     disabledContainerColor = Navy700,
                     disabledContentColor = TextSecondaryDark
                 ),
-                contentPadding = PaddingValues(vertical = 12.dp)
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 11.dp)
             ) {
-                if (isExporting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = TextSecondaryDark
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("جارٍ التصدير...", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.Download,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "تصدير وحفظ الفيديو في الذاكرة (Movies)",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.VideoFile,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "1. تصدير فيديو كامل (MP4)",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Navy900.copy(alpha = 0.25f)
+                    ) {
+                        Text(
+                            text = "فيديو + صوت معزول",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Option 2: Voice Only WAV
+            OutlinedButton(
+                onClick = onExportVoiceOnly,
+                enabled = !isExporting,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("export_voice_only_button"),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MagentaAccent,
+                    disabledContentColor = TextSecondaryDark
+                ),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (!isExporting) MagentaAccent.copy(alpha = 0.7f) else Navy700
+                ),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 11.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = null,
+                            tint = if (!isExporting) MagentaAccent else TextSecondaryDark,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "2. تصدير الصوت البشري فقط (WAV)",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (!isExporting) MagentaAccent else TextSecondaryDark
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MagentaAccent.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = "صوت نقي فائق السرعة",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (!isExporting) MagentaAccent else TextSecondaryDark,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
                 }
             }
         }
@@ -988,6 +1097,7 @@ fun ExportActionCard(
 fun ExportingCard(
     stage: String,
     progress: Float,
+    elapsedSeconds: Int = 0,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -1018,18 +1128,25 @@ fun ExportingCard(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "تصدير الفيديو بدون موسيقى (Muxing MP4)",
+                        text = "جارٍ المعالجة والتصدير للتخزين",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = EmeraldSuccess
                     )
                 }
-                Text(
-                    text = "${(progress * 100).toInt()}%",
-                    fontWeight = FontWeight.Bold,
-                    color = EmeraldSuccess,
-                    fontSize = 14.sp
-                )
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = EmeraldSuccess.copy(alpha = 0.15f)
+                ) {
+                    Text(
+                        text = "${(progress * 100).toInt()}%",
+                        fontWeight = FontWeight.Bold,
+                        color = EmeraldSuccess,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -1045,24 +1162,56 @@ fun ExportingCard(
                 trackColor = Navy600
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Start
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                    color = EmeraldSuccess
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = stage,
-                    fontSize = 12.sp,
-                    color = TextSecondaryDark
-                )
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = EmeraldSuccess
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = stage,
+                        fontSize = 11.sp,
+                        color = TextSecondaryDark,
+                        maxLines = 1
+                    )
+                }
+
+                // Live Elapsed Timer for Export
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Navy900,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Navy700)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Timer,
+                            contentDescription = null,
+                            tint = EmeraldSuccess,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "المستغرق: ${formatSeconds(elapsedSeconds)}",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = EmeraldSuccess
+                        )
+                    }
+                }
             }
         }
     }
@@ -1072,10 +1221,13 @@ fun ExportingCard(
 fun ExportSuccessDialog(
     fileName: String,
     filePath: String,
-    onOpenVideo: () -> Unit,
-    onShareVideo: () -> Unit,
+    exportType: ExportType = ExportType.VIDEO_MP4,
+    onOpenMedia: () -> Unit,
+    onShareMedia: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val isVideo = (exportType == ExportType.VIDEO_MP4)
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -1095,13 +1247,20 @@ fun ExportSuccessDialog(
                     )
                 }
                 Spacer(modifier = Modifier.width(10.dp))
-                Text("تم التصدير بنجاح!", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(
+                    text = if (isVideo) "تم تصدير الفيديو بنجاح!" else "تم حفظ الصوت البشري بنجاح!",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
             }
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "تم تصدير مقطع الفيديو بعد كتم الموسيقى وحفظ الصوت البشري المعزول فقط بنجاح في وحدة التخزين.",
+                    text = if (isVideo)
+                        "تم دمج وتصدير مقطع الفيديو مع الصوت البشري المعزول فقط وبدون أي موسيقى بنجاح."
+                    else
+                        "تم استخراج وحفظ ملف الصوت البشري المعزول (Voice Only) فائق الجودة بصيغة WAV بنجاح.",
                     fontSize = 13.sp,
                     lineHeight = 18.sp,
                     color = TextPrimaryDark
@@ -1116,14 +1275,14 @@ fun ExportSuccessDialog(
                     Column(modifier = Modifier.padding(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = Icons.Default.Folder,
+                                imageVector = if (isVideo) Icons.Default.Movie else Icons.Default.Audiotrack,
                                 contentDescription = null,
                                 tint = CyanAccent,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "موقع الحفظ في التخزين:",
+                                text = "اسم وموقع الملف:",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = CyanAccent
@@ -1131,16 +1290,26 @@ fun ExportSuccessDialog(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
+                            text = fileName,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimaryDark
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
                             text = filePath,
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
                             color = TextSecondaryDark,
-                            lineHeight = 15.sp
+                            lineHeight = 14.sp
                         )
                     }
                 }
 
                 Text(
-                    text = "يمكنك العثور على الفيديو في تطبيق المعرض (Gallery) أو مشغل الفيديو ضمن مجلد Movies/VocalKeep.",
+                    text = if (isVideo)
+                        "يمكنك العثور على الفيديو في تطبيق المعرض (Gallery) ضمن مجلد Movies/VocalKeep."
+                    else
+                        "يمكنك العثور على الملف الصوتي في تطبيق الموسيقى أو مدير الملفات ضمن Music/VocalKeep.",
                     fontSize = 11.sp,
                     color = TextSecondaryDark
                 )
@@ -1149,7 +1318,7 @@ fun ExportSuccessDialog(
         confirmButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
-                    onClick = onShareVideo,
+                    onClick = onShareMedia,
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = CyanAccent),
                     border = androidx.compose.foundation.BorderStroke(1.dp, CyanAccent)
                 ) {
@@ -1159,12 +1328,16 @@ fun ExportSuccessDialog(
                 }
 
                 Button(
-                    onClick = onOpenVideo,
+                    onClick = onOpenMedia,
                     colors = ButtonDefaults.buttonColors(containerColor = CyanAccent, contentColor = Navy900)
                 ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(
+                        imageVector = if (isVideo) Icons.Default.PlayArrow else Icons.Default.VolumeUp,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("تشغيل")
+                    Text(if (isVideo) "تشغيل الفيديو" else "استماع للصوت")
                 }
             }
         },
@@ -1197,13 +1370,14 @@ fun InfoDialog(onDismiss: () -> Unit) {
                 )
                 HorizontalDivider(color = Navy600)
                 Text(
-                    text = "المزايا والتقنيات:\n" +
+                    text = "المزايا والتقنيات المُسرّعة:\n" +
                             "• يعمل 100% بدون اتصال بالإنترنت (Offline)\n" +
-                            "• مشغل ExoPlayer المتقدم مع تزامن ملي-ثانية\n" +
-                            "• محرك Spleeter العصبي الحصري (Spleeter 2-Stems Neural Engine) لعزل الصوت البشري وإزالة الموسيقى\n" +
+                            "• تسريع المعالجة عبر المعالجة المتوازية متعددة الأنوية (Multi-Core CPU Parallelism)\n" +
+                            "• محرك تحويل فورييه السريع المسبق الجداول (Optimized Radix-2 FFT Engine)\n" +
+                            "• مؤقت زمني دقيق للوقت المستغرق أثناء المعالجة والتصدير (Elapsed Timer)\n" +
+                            "• تصدير فيديو كامل (MP4) أو تصدير الصوت البشري فقط (WAV)\n" +
                             "• إمكانية تشغيل الصوت في الخلفية (Background Play) مع قفل الشاشة\n" +
-                            "• تصدير وحفظ مقاطع الفيديو بعد كتم الموسيقى مباشرة إلى الذاكرة الداخلية (Movies/VocalKeep)\n" +
-                            "• إمكانية التحكم في مستوى صوت الصوت البشري والآلات بشكل منفصل\n" +
+                            "• مكسر صوتي للتحكم بمستويات الصوت البشري والآلات الموسيقية\n" +
                             "• إدارة ذكية للذاكرة المؤقتة لسرعة التشغيل الفوري",
                     fontSize = 12.sp,
                     lineHeight = 17.sp,
@@ -1227,5 +1401,12 @@ fun formatTime(millis: Long): String {
     val totalSeconds = (millis / 1000).coerceAtLeast(0)
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
+    return String.format("%02d:%02d", minutes, seconds)
+}
+
+fun formatSeconds(totalSeconds: Int): String {
+    val safeSeconds = totalSeconds.coerceAtLeast(0)
+    val minutes = safeSeconds / 60
+    val seconds = safeSeconds % 60
     return String.format("%02d:%02d", minutes, seconds)
 }

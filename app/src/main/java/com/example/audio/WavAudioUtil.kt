@@ -161,64 +161,13 @@ object WavAudioUtil {
     }
 
     /**
-     * In-place Cooley-Tukey Radix-2 FFT
+     * Accelerated in-place Fast Fourier Transform using precomputed lookup tables
      */
     fun fft(real: FloatArray, imag: FloatArray) {
-        val n = real.size
-        var j = 0
-        for (i in 0 until n - 1) {
-            if (i < j) {
-                val tempR = real[i]; real[i] = real[j]; real[j] = tempR
-                val tempI = imag[i]; imag[i] = imag[j]; imag[j] = tempI
-            }
-            var k = n / 2
-            while (k <= j) {
-                j -= k
-                k /= 2
-            }
-            j += k
-        }
-
-        var len = 2
-        while (len <= n) {
-            val halfLen = len / 2
-            val angle = -2.0 * PI / len
-            val wStepR = cos(angle).toFloat()
-            val wStepI = sin(angle).toFloat()
-
-            var i = 0
-            while (i < n) {
-                var wR = 1.0f
-                var wI = 0.0f
-                for (k in 0 until halfLen) {
-                    val uR = real[i + k]
-                    val uI = imag[i + k]
-                    val tR = wR * real[i + k + halfLen] - wI * imag[i + k + halfLen]
-                    val tI = wR * imag[i + k + halfLen] + wI * real[i + k + halfLen]
-
-                    real[i + k] = uR + tR
-                    imag[i + k] = uI + tI
-                    real[i + k + halfLen] = uR - tR
-                    imag[i + k + halfLen] = uI - tI
-
-                    val nextWR = wR * wStepR - wI * wStepI
-                    val nextWI = wR * wStepI + wI * wStepR
-                    wR = nextWR
-                    wI = nextWI
-                }
-                i += len
-            }
-            len *= 2
-        }
+        FastFourierTransform(real.size).fft(real, imag)
     }
 
     fun ifft(real: FloatArray, imag: FloatArray) {
-        val n = real.size
-        for (i in 0 until n) imag[i] = -imag[i]
-        fft(real, imag)
-        for (i in 0 until n) {
-            real[i] = real[i] / n
-            imag[i] = -imag[i] / n
-        }
+        FastFourierTransform(real.size).ifft(real, imag)
     }
 }

@@ -1,7 +1,6 @@
 package com.example.audio
 
 import android.content.Context
-import android.media.AudioFormat
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
@@ -16,17 +15,20 @@ import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
+/**
+ * Accelerated High-Fidelity Audio Extractor
+ *
+ * Decodes audio stream from video with hardware-accelerated MediaCodec
+ * and streaming linear resampling directly to 16-bit PCM 44.1kHz mono WAV.
+ */
 class AudioExtractor(private val context: Context) {
 
     companion object {
         private const val TAG = "AudioExtractor"
-        private const val TIMEOUT_US = 10000L
+        private const val TIMEOUT_US = 5000L
+        private const val OUT_BUFFER_CAPACITY = 32768
     }
 
-    /**
-     * Extracts audio track from video Uri, decodes it directly in streaming mode
-     * to a high-fidelity 16-bit PCM 44.1kHz mono WAV file without high memory consumption.
-     */
     suspend fun extractAudioToWav(
         videoUri: Uri,
         outputWavFile: File,
@@ -37,7 +39,6 @@ class AudioExtractor(private val context: Context) {
         var pfd: ParcelFileDescriptor? = null
 
         try {
-            // Safely set data source
             if (videoUri.scheme == "content") {
                 pfd = context.contentResolver.openFileDescriptor(videoUri, "r")
                 if (pfd != null) {
@@ -57,7 +58,6 @@ class AudioExtractor(private val context: Context) {
                 extractor.setDataSource(context, videoUri, null)
             }
 
-            // Find audio track
             var audioTrackIndex = -1
             var format: MediaFormat? = null
             var mime: String? = null
@@ -107,15 +107,13 @@ class AudioExtractor(private val context: Context) {
             var isOutputEOS = false
 
             var totalPcmBytesWritten = 0L
-            val outByteBuffer = ByteArray(4096)
+            val outByteBuffer = ByteArray(OUT_BUFFER_CAPACITY)
             val outByteBufferWrapper = ByteBuffer.wrap(outByteBuffer).order(ByteOrder.LITTLE_ENDIAN)
 
-            // Streaming resampler state
             var resamplePhase = 0.0
             var prevSample = 0.0f
 
-            BufferedOutputStream(FileOutputStream(outputWavFile), 65536).use { wavOut ->
-                // Write initial 44-byte WAV header placeholder
+            BufferedOutputStream(FileOutputStream(outputWavFile), 131072).use { wavOut ->
                 WavAudioUtil.writeWavHeader(
                     out = wavOut,
                     totalAudioLen = 0,
@@ -125,7 +123,6 @@ class AudioExtractor(private val context: Context) {
                 )
 
                 while (!isOutputEOS) {
-                    // Feed input to decoder
                     if (!isInputEOS) {
                         val inIndex = codec.dequeueInputBuffer(TIMEOUT_US)
                         if (inIndex >= 0) {
@@ -149,7 +146,6 @@ class AudioExtractor(private val context: Context) {
                         }
                     }
 
-                    // Retrieve output from decoder
                     val outIndex = codec.dequeueOutputBuffer(info, TIMEOUT_US)
                     when {
                         outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
@@ -162,7 +158,7 @@ class AudioExtractor(private val context: Context) {
                             }
                         }
                         outIndex == MediaCodec.INFO_TRY_AGAIN_LATER -> {
-                            // Continue waiting
+                            // Continue
                         }
                         outIndex >= 0 -> {
                             val outBuffer = codec.getOutputBuffer(outIndex)
@@ -182,7 +178,6 @@ class AudioExtractor(private val context: Context) {
                                 var outBufPos = 0
 
                                 for (f in 0 until numFrames) {
-                                    // Downmix frame to mono
                                     var sum = 0
                                     for (c in 0 until channels) {
                                         sum += shortBuffer.get()
@@ -199,7 +194,6 @@ class AudioExtractor(private val context: Context) {
                                             outBufPos = 0
                                         }
                                     } else {
-                                        // Streaming linear resample
                                         while (resamplePhase < 1.0) {
                                             val interpolated = prevSample + resamplePhase.toFloat() * (monoVal - prevSample)
                                             val s = interpolated.toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
@@ -238,9 +232,7 @@ class AudioExtractor(private val context: Context) {
                 return@withContext false
             }
 
-            // Update WAV header with exact PCM byte count
             WavAudioUtil.updateWavHeaderLengths(outputWavFile, totalPcmBytesWritten)
-
             onProgress(1.0f)
             true
         } catch (t: Throwable) {

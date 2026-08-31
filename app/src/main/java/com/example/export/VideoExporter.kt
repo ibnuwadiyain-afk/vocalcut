@@ -17,18 +17,23 @@ import androidx.core.content.FileProvider
 import com.example.audio.WavAudioUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
+
+enum class ExportType {
+    VIDEO_MP4,
+    VOICE_ONLY_WAV
+}
 
 sealed class ExportResult {
     data class Success(
         val outputUri: Uri,
         val filePath: String,
         val fileName: String,
-        val sizeBytes: Long
+        val sizeBytes: Long,
+        val exportType: ExportType
     ) : ExportResult()
 
     data class Error(val message: String) : ExportResult()
@@ -38,10 +43,10 @@ class VideoExporter(private val context: Context) {
 
     companion object {
         private const val TAG = "VideoExporter"
-        private const val TIMEOUT_US = 10000L
+        private const val TIMEOUT_US = 5000L
         private const val AAC_MIME = MediaFormat.MIMETYPE_AUDIO_AAC
         private const val AAC_SAMPLE_RATE = 44100
-        private const val AAC_BIT_RATE = 128000
+        private const val AAC_BIT_RATE = 160000
     }
 
     /**
@@ -60,10 +65,8 @@ class VideoExporter(private val context: Context) {
         var muxer: MediaMuxer? = null
         var pfd: ParcelFileDescriptor? = null
 
-        val cleanTitle = baseFileName.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(40)
+        val cleanTitle = baseFileName.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(40).ifBlank { "video" }
         val finalFileName = "VocalKeep_${cleanTitle}_${System.currentTimeMillis()}.mp4"
-
-        // Temporary local MP4 file to construct
         val tempExportFile = File(context.cacheDir, "export_${System.currentTimeMillis()}.mp4")
 
         try {
@@ -112,12 +115,12 @@ class VideoExporter(private val context: Context) {
             videoExtractor.selectTrack(sourceVideoTrackIndex)
 
             // 2. Prepare AAC audio encoder for the isolated vocal WAV
-            onProgress(0.15f, "جارٍ تجهيز مسار الصوت المعزول بدون موسيقى...")
+            onProgress(0.15f, "تهيئة مشفر الصوت عالي الأداء...")
 
             val aacFormat = MediaFormat.createAudioFormat(AAC_MIME, AAC_SAMPLE_RATE, 1).apply {
                 setInteger(MediaFormat.KEY_BIT_RATE, AAC_BIT_RATE)
                 setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
-                setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16384)
+                setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 32768)
             }
 
             audioCodec = MediaCodec.createEncoderByType(AAC_MIME)
@@ -130,25 +133,27 @@ class VideoExporter(private val context: Context) {
             var muxerAudioTrackIndex = -1
             var isMuxerStarted = false
 
-            // Wait for encoder output format before starting muxer
             val audioBufferInfo = MediaCodec.BufferInfo()
             val videoBufferInfo = MediaCodec.BufferInfo()
 
+            // Preallocate reusable video direct buffer
+            val maxVideoBufSize = videoFormat.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 1024 * 1024)
+            val videoDirectBuffer = ByteBuffer.allocateDirect(maxVideoBufSize)
+
             // Prepare WAV PCM reader (skip 44 bytes header)
-            val wavInputStream = FileInputStream(vocalWavFile)
+            val wavInputStream = BufferedInputStream(FileInputStream(vocalWavFile), 65536)
             wavInputStream.skip(44)
 
-            val pcmChunk = ByteArray(4096)
+            val pcmChunk = ByteArray(8192)
             var isPcmEof = false
             var totalPcmBytesRead = 0L
             val bytesPerSec = AAC_SAMPLE_RATE * 2L // 44100 * 2 bytes (16-bit mono)
 
-            onProgress(0.25f, "جارٍ تشفير الصوت المعزول ودمجه مع الفيديو...")
+            onProgress(0.25f, "دمج مسار الفيديو والصوت المعزول...")
 
             var isAudioEncodingDone = false
             var isVideoCopyDone = false
 
-            // Loop to handle audio encoding and get encoder output format
             while (!isAudioEncodingDone || !isVideoCopyDone) {
                 // Feed PCM to audio encoder
                 if (!isPcmEof) {
@@ -204,13 +209,11 @@ class VideoExporter(private val context: Context) {
                     }
                 }
 
-                // Copy video samples if muxer is started
+                // Copy video samples quickly with preallocated buffer
                 if (isMuxerStarted && !isVideoCopyDone) {
-                    val maxVideoBufSize = videoFormat.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 1024 * 1024)
-                    val videoBuffer = ByteBuffer.allocateDirect(maxVideoBufSize)
-                    videoBuffer.clear()
+                    videoDirectBuffer.clear()
 
-                    val sampleSize = videoExtractor.readSampleData(videoBuffer, 0)
+                    val sampleSize = videoExtractor.readSampleData(videoDirectBuffer, 0)
                     if (sampleSize < 0) {
                         isVideoCopyDone = true
                     } else {
@@ -219,13 +222,13 @@ class VideoExporter(private val context: Context) {
                         videoBufferInfo.presentationTimeUs = videoExtractor.sampleTime
                         videoBufferInfo.flags = videoExtractor.sampleFlags
 
-                        muxer.writeSampleData(muxerVideoTrackIndex, videoBuffer, videoBufferInfo)
+                        muxer.writeSampleData(muxerVideoTrackIndex, videoDirectBuffer, videoBufferInfo)
                         videoExtractor.advance()
 
                         if (videoDurationUs > 0) {
                             val vProg = (videoBufferInfo.presentationTimeUs.toFloat() / videoDurationUs.toFloat()).coerceIn(0f, 1f)
                             val combinedProg = 0.25f + (vProg * 0.65f)
-                            onProgress(combinedProg, "جارٍ دمج مسار الفيديو والصوت بدون موسيقى (${(vProg * 100).toInt()}%)...")
+                            onProgress(combinedProg, "جارٍ دمج الفيديو والصوت المعزول (${(vProg * 100).toInt()}%)...")
                         }
                     }
                 }
@@ -233,9 +236,8 @@ class VideoExporter(private val context: Context) {
 
             wavInputStream.close()
 
-            onProgress(0.92f, "جارٍ حفظ الفيديو المصدر في مساحة التخزين...")
+            onProgress(0.92f, "جارٍ حفظ الفيديو في مساحة التخزين...")
 
-            // Finish Muxer
             try {
                 if (isMuxerStarted) {
                     muxer.stop()
@@ -246,7 +248,6 @@ class VideoExporter(private val context: Context) {
                 Log.w(TAG, "Muxer stop warning", ex)
             }
 
-            // 4. Save to MediaStore (Movies/VocalKeep) or External/Internal Storage
             val savedLocation = saveVideoToStorage(tempExportFile, finalFileName)
 
             onProgress(1.0f, "تم تصدير وحفظ الفيديو بنجاح!")
@@ -255,7 +256,8 @@ class VideoExporter(private val context: Context) {
                 outputUri = savedLocation.first,
                 filePath = savedLocation.second,
                 fileName = finalFileName,
-                sizeBytes = tempExportFile.length()
+                sizeBytes = tempExportFile.length(),
+                exportType = ExportType.VIDEO_MP4
             )
         } catch (t: Throwable) {
             Log.e(TAG, "Video export failed: ${t.message}", t)
@@ -272,6 +274,44 @@ class VideoExporter(private val context: Context) {
             } catch (e: Exception) {
                 Log.w(TAG, "Cleanup exception", e)
             }
+        }
+    }
+
+    /**
+     * Exports only the isolated human voice audio track (WAV) directly to storage.
+     * Extremely fast since it writes the isolated voice file to Music/VocalKeep.
+     */
+    suspend fun exportVoiceOnly(
+        vocalWavFile: File,
+        baseFileName: String,
+        onProgress: (Float, String) -> Unit
+    ): ExportResult = withContext(Dispatchers.IO) {
+        try {
+            onProgress(0.1f, "جارٍ تجهيز ملف الصوت المعزول...")
+
+            if (!vocalWavFile.exists() || vocalWavFile.length() <= 44) {
+                return@withContext ExportResult.Error("ملف الصوت البشري المعزول غير متوفر.")
+            }
+
+            val cleanTitle = baseFileName.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(40).ifBlank { "audio" }
+            val finalFileName = "VocalKeep_Voice_${cleanTitle}_${System.currentTimeMillis()}.wav"
+
+            onProgress(0.5f, "جارٍ حفظ الصوت البشري في مساحة التخزين...")
+
+            val savedLocation = saveAudioToStorage(vocalWavFile, finalFileName)
+
+            onProgress(1.0f, "تم حفظ ملف الصوت بنجاح!")
+
+            ExportResult.Success(
+                outputUri = savedLocation.first,
+                filePath = savedLocation.second,
+                fileName = finalFileName,
+                sizeBytes = vocalWavFile.length(),
+                exportType = ExportType.VOICE_ONLY_WAV
+            )
+        } catch (t: Throwable) {
+            Log.e(TAG, "Voice export failed: ${t.message}", t)
+            ExportResult.Error("فشل تصدير الصوت: ${t.localizedMessage ?: t.javaClass.simpleName}")
         }
     }
 
@@ -295,7 +335,7 @@ class VideoExporter(private val context: Context) {
 
             if (uri != null) {
                 resolver.openOutputStream(uri)?.use { out ->
-                    FileInputStream(sourceFile).use { input ->
+                    BufferedInputStream(FileInputStream(sourceFile), 65536).use { input ->
                         input.copyTo(out)
                     }
                 }
@@ -309,9 +349,59 @@ class VideoExporter(private val context: Context) {
             }
         }
 
-        // Fallback for older Android or direct file target in app external files directory
+        // Fallback for app external files directory
         val moviesDir = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: context.filesDir
         val targetDir = File(moviesDir, "VocalKeep").apply { mkdirs() }
+        val targetFile = File(targetDir, fileName)
+
+        sourceFile.copyTo(targetFile, overwrite = true)
+
+        val fileUri = try {
+            FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                targetFile
+            )
+        } catch (e: Exception) {
+            Uri.fromFile(targetFile)
+        }
+
+        return Pair(fileUri, targetFile.absolutePath)
+    }
+
+    private fun saveAudioToStorage(sourceFile: File, fileName: String): Pair<Uri, String> {
+        val resolver = context.contentResolver
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val contentValues = ContentValues().apply {
+                put(MediaStore.Audio.Media.DISPLAY_NAME, fileName)
+                put(MediaStore.Audio.Media.MIME_TYPE, "audio/wav")
+                put(MediaStore.Audio.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MUSIC}/VocalKeep")
+                put(MediaStore.Audio.Media.IS_PENDING, 1)
+            }
+
+            val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val uri = resolver.insert(collection, contentValues)
+
+            if (uri != null) {
+                resolver.openOutputStream(uri)?.use { out ->
+                    BufferedInputStream(FileInputStream(sourceFile), 65536).use { input ->
+                        input.copyTo(out)
+                    }
+                }
+
+                contentValues.clear()
+                contentValues.put(MediaStore.Audio.Media.IS_PENDING, 0)
+                resolver.update(uri, contentValues, null, null)
+
+                val displayPath = "${Environment.DIRECTORY_MUSIC}/VocalKeep/$fileName"
+                return Pair(uri, displayPath)
+            }
+        }
+
+        // Fallback for app external files directory
+        val musicDir = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC) ?: context.filesDir
+        val targetDir = File(musicDir, "VocalKeep").apply { mkdirs() }
         val targetFile = File(targetDir, fileName)
 
         sourceFile.copyTo(targetFile, overwrite = true)
