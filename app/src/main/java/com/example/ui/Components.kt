@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.audio.SeparationEngine
 import com.example.export.ExportType
 import com.example.ui.theme.*
 import kotlin.math.sin
@@ -313,6 +314,7 @@ fun VideoPlayerControlsOverlay(
 @Composable
 fun PlaybackModeSelectorCard(
     currentMode: AudioPlaybackMode,
+    selectedEngine: SeparationEngine = SeparationEngine.SPLEETER_FAST,
     isProcessing: Boolean,
     isSeparated: Boolean,
     isCached: Boolean = false,
@@ -354,7 +356,7 @@ fun PlaybackModeSelectorCard(
                     }
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "خيارات تشغيل الصوت (Audio Playback Options)",
+                        text = "خيارات تشغيل الصوت (Audio Playback)",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimaryDark
@@ -539,12 +541,25 @@ fun PlaybackModeSelectorCard(
                         Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = "2. صوت بشري فقط (Vocal Only / Mute Instruments)",
+                                    text = "2. صوت بشري فقط (Vocal Only)",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp,
                                     color = if (isVocalSelected) PurpleAccent else TextPrimaryDark
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = if (selectedEngine == SeparationEngine.UVR_MDXNET) PurpleAccent.copy(alpha = 0.22f) else CyanAccent.copy(alpha = 0.22f)
+                                ) {
+                                    Text(
+                                        text = selectedEngine.badge,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (selectedEngine == SeparationEngine.UVR_MDXNET) PurpleAccent else CyanAccent,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Surface(
                                     shape = RoundedCornerShape(4.dp),
                                     color = if (isSeparated) EmeraldSuccess.copy(alpha = 0.18f) else AmberWarning.copy(alpha = 0.18f)
@@ -563,13 +578,215 @@ fun PlaybackModeSelectorCard(
                                 text = if (isCached)
                                     "محفوظ بالذاكرة المحلية - جاهز للتشغيل الفوري بدون إعادة معالجة"
                                 else if (isSeparated)
-                                    "تم كتم الآلات الموسيقية وعزل الصوت البشري بجودة عالية"
+                                    "تم كتم الآلات الموسيقية وعزل الصوت البشري بدقة ${selectedEngine.titleAr}"
                                 else
-                                    "كتم الموسيقى وعزل الصوت - يحتاج وقتاً للتخزين المؤقت لأول مرة فقط",
+                                    "كتم الموسيقى وعزل الصوت بمحرك ${selectedEngine.titleAr} - يحتاج تخزيناً مؤقتاً لأول مرة فقط",
                                 fontSize = 11.sp,
                                 color = TextSecondaryDark
                             )
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * UVR MDX-Net & Spleeter Fast Separation Engine Selector Card
+ */
+@Composable
+fun SeparationEngineSelectorCard(
+    selectedEngine: SeparationEngine,
+    onSelectEngine: (SeparationEngine) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("engine_selector_card"),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Navy800),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Navy600)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Brush.linearGradient(listOf(PurpleAccent, CyanAccent))),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = null,
+                            tint = Navy900,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "محرك عزل الصوت (Separation Engine)",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimaryDark
+                    )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Navy900
+                ) {
+                    Text(
+                        text = "اختياري",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextSecondaryDark,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Engine 1: Spleeter Fast
+            val isSpleeterSelected = (selectedEngine == SeparationEngine.SPLEETER_FAST)
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable { onSelectEngine(SeparationEngine.SPLEETER_FAST) }
+                    .testTag("engine_option_spleeter"),
+                shape = RoundedCornerShape(14.dp),
+                color = if (isSpleeterSelected) Navy700 else Navy900.copy(alpha = 0.6f),
+                border = androidx.compose.foundation.BorderStroke(
+                    width = if (isSpleeterSelected) 1.5.dp else 1.dp,
+                    color = if (isSpleeterSelected) CyanAccent else Navy700
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = isSpleeterSelected,
+                        onClick = { onSelectEngine(SeparationEngine.SPLEETER_FAST) },
+                        colors = RadioButtonDefaults.colors(
+                            selectedColor = CyanAccent,
+                            unselectedColor = TextSecondaryDark
+                        ),
+                        modifier = Modifier.size(20.dp)
+                    )
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = SeparationEngine.SPLEETER_FAST.titleAr,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = if (isSpleeterSelected) CyanAccent else TextPrimaryDark
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = CyanAccent.copy(alpha = 0.18f)
+                            ) {
+                                Text(
+                                    text = SeparationEngine.SPLEETER_FAST.badge,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CyanAccent,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = SeparationEngine.SPLEETER_FAST.subtitleAr,
+                            fontSize = 11.sp,
+                            color = TextSecondaryDark
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Engine 2: UVR MDX-Net Studio
+            val isUvrSelected = (selectedEngine == SeparationEngine.UVR_MDXNET)
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable { onSelectEngine(SeparationEngine.UVR_MDXNET) }
+                    .testTag("engine_option_uvr"),
+                shape = RoundedCornerShape(14.dp),
+                color = if (isUvrSelected) Navy700 else Navy900.copy(alpha = 0.6f),
+                border = androidx.compose.foundation.BorderStroke(
+                    width = if (isUvrSelected) 1.5.dp else 1.dp,
+                    color = if (isUvrSelected) PurpleAccent else Navy700
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = isUvrSelected,
+                        onClick = { onSelectEngine(SeparationEngine.UVR_MDXNET) },
+                        colors = RadioButtonDefaults.colors(
+                            selectedColor = PurpleAccent,
+                            unselectedColor = TextSecondaryDark
+                        ),
+                        modifier = Modifier.size(20.dp)
+                    )
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = SeparationEngine.UVR_MDXNET.titleAr,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = if (isUvrSelected) PurpleAccent else TextPrimaryDark
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = PurpleAccent.copy(alpha = 0.22f)
+                            ) {
+                                Text(
+                                    text = SeparationEngine.UVR_MDXNET.badge,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = PurpleAccent,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = SeparationEngine.UVR_MDXNET.subtitleAr,
+                            fontSize = 11.sp,
+                            color = TextSecondaryDark
+                        )
                     }
                 }
             }
@@ -1370,15 +1587,16 @@ fun InfoDialog(onDismiss: () -> Unit) {
                 )
                 HorizontalDivider(color = Navy600)
                 Text(
-                    text = "المزايا والتقنيات المُسرّعة:\n" +
+                    text = "المزايا والمحركات المدمجة:\n" +
+                            "• محركان لعزل الصوت: Spleeter Fast (فائق السرعة) و UVR MDX-Net (جودة استوديو 4096-pt STFT)\n" +
                             "• يعمل 100% بدون اتصال بالإنترنت (Offline)\n" +
                             "• تسريع المعالجة عبر المعالجة المتوازية متعددة الأنوية (Multi-Core CPU Parallelism)\n" +
                             "• محرك تحويل فورييه السريع المسبق الجداول (Optimized Radix-2 FFT Engine)\n" +
-                            "• مؤقت زمني دقيق للوقت المستغرق أثناء المعالجة والتصدير (Elapsed Timer)\n" +
-                            "• تصدير فيديو كامل (MP4) أو تصدير الصوت البشري فقط (WAV)\n" +
+                            "• مؤقت زمني دقيق للوقت المستغرق أثناء المعالجة والتصدير (Live Elapsed Timers)\n" +
+                            "• خيارات تصدير متعددة: فيديو كامل (MP4) أو الصوت البشري فقط (WAV)\n" +
                             "• إمكانية تشغيل الصوت في الخلفية (Background Play) مع قفل الشاشة\n" +
                             "• مكسر صوتي للتحكم بمستويات الصوت البشري والآلات الموسيقية\n" +
-                            "• إدارة ذكية للذاكرة المؤقتة لسرعة التشغيل الفوري",
+                            "• إدارة ذكية للذاكرة المؤقتة لسرعة التشغيل الفوري لكل محرك على حدة",
                     fontSize = 12.sp,
                     lineHeight = 17.sp,
                     color = TextSecondaryDark

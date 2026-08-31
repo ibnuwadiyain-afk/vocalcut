@@ -427,11 +427,20 @@ fun VideoPlayerScreen(
                     // PRIMARY FEATURE: Audio Playback Options (Option 1: Normal Native Audio, Option 2: Vocal Only / Mute Instruments)
                     PlaybackModeSelectorCard(
                         currentMode = uiState.playbackMode,
+                        selectedEngine = uiState.selectedEngine,
                         isProcessing = uiState.isProcessing,
                         isSeparated = uiState.isSeparated,
                         isCached = uiState.isCached,
                         onSelectMode = { mode ->
                             viewModel.selectPlaybackMode(mode)
+                        }
+                    )
+
+                    // Separation Engine Selector (UVR MDX-Net Studio vs Spleeter Fast)
+                    SeparationEngineSelectorCard(
+                        selectedEngine = uiState.selectedEngine,
+                        onSelectEngine = { engine ->
+                            viewModel.setSeparationEngine(engine)
                         }
                     )
 

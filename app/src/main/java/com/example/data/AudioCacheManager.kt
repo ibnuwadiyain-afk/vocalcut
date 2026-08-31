@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Log
+import com.example.audio.SeparationEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -25,10 +26,9 @@ class AudioCacheManager(private val context: Context) {
         }
 
     /**
-     * Generates a deterministic SHA-256 fingerprint for a video Uri
-     * based on its URI, size, and display name.
+     * Generates a deterministic SHA-256 fingerprint for a video Uri and separation engine.
      */
-    fun computeCacheKey(uri: Uri): String {
+    fun computeCacheKey(uri: Uri, engine: SeparationEngine = SeparationEngine.SPLEETER_FAST): String {
         var fileSize = 0L
         var displayName = uri.lastPathSegment ?: "unknown"
 
@@ -57,16 +57,19 @@ class AudioCacheManager(private val context: Context) {
             }
         }
 
-        val rawSignature = "${uri.toString()}_${displayName}_$fileSize"
+        val rawSignature = "${uri}_${displayName}_${fileSize}_${engine.id}"
         return sha256(rawSignature)
     }
 
     /**
-     * Checks if a valid cached separation exists for the given video Uri.
+     * Checks if a valid cached separation exists for the given video Uri and engine.
      */
-    suspend fun getCachedEntry(uri: Uri): CachedAudioEntry? = withContext(Dispatchers.IO) {
+    suspend fun getCachedEntry(
+        uri: Uri,
+        engine: SeparationEngine = SeparationEngine.SPLEETER_FAST
+    ): CachedAudioEntry? = withContext(Dispatchers.IO) {
         try {
-            val key = computeCacheKey(uri)
+            val key = computeCacheKey(uri, engine)
             val entry = dao.getEntryByKey(key) ?: return@withContext null
 
             val vocalFile = File(entry.vocalFilePath)
@@ -75,9 +78,8 @@ class AudioCacheManager(private val context: Context) {
             if (vocalFile.exists() && vocalFile.length() > 44 &&
                 accompanimentFile.exists() && accompanimentFile.length() > 44
             ) {
-                // Update access timestamp
                 dao.updateAccessTime(key, System.currentTimeMillis())
-                Log.d(TAG, "Cache HIT for video: ${entry.videoTitle} (Key: $key)")
+                Log.d(TAG, "Cache HIT for video: ${entry.videoTitle} (Engine: ${engine.id}, Key: $key)")
                 return@withContext entry
             } else {
                 Log.w(TAG, "Cache file missing on disk, cleaning up key: $key")
@@ -91,7 +93,7 @@ class AudioCacheManager(private val context: Context) {
     }
 
     /**
-     * Persists separated audio files to the local persistent cache and records metadata in Room.
+     * Persists separated audio files to local cache.
      */
     suspend fun saveToCache(
         uri: Uri,
@@ -99,10 +101,11 @@ class AudioCacheManager(private val context: Context) {
         vocalSourceFile: File,
         accompanimentSourceFile: File,
         rawWavSourceFile: File? = null,
-        durationMs: Long = 0L
+        durationMs: Long = 0L,
+        engine: SeparationEngine = SeparationEngine.SPLEETER_FAST
     ): CachedAudioEntry? = withContext(Dispatchers.IO) {
         try {
-            val key = computeCacheKey(uri)
+            val key = computeCacheKey(uri, engine)
             val dir = cacheDirectory
 
             val targetVocal = File(dir, "${key}_vocal.wav")
@@ -111,7 +114,6 @@ class AudioCacheManager(private val context: Context) {
                 File(dir, "${key}_raw.wav")
             } else null
 
-            // Copy to persistent storage
             vocalSourceFile.copyTo(targetVocal, overwrite = true)
             accompanimentSourceFile.copyTo(targetAccompaniment, overwrite = true)
             targetRaw?.let { rawWavSourceFile?.copyTo(it, overwrite = true) }
@@ -132,7 +134,7 @@ class AudioCacheManager(private val context: Context) {
             )
 
             dao.insertEntry(entry)
-            Log.d(TAG, "Saved audio separation to local cache: ${entry.videoTitle} ($totalSize bytes)")
+            Log.d(TAG, "Saved audio separation to local cache: ${entry.videoTitle} (Engine: ${engine.id}, $totalSize bytes)")
             entry
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save audio to cache: ${e.message}", e)

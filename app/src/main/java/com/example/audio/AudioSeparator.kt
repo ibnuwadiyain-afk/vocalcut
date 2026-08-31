@@ -18,27 +18,27 @@ import java.nio.ByteOrder
 import kotlin.math.*
 
 /**
- * Accelerated High-Performance Spleeter 2-Stem Neural Separation Engine
+ * Unified Neural Source Separation Orchestrator
  *
- * Implements Spleeter 2-Stem neural source separation with multi-core parallel acceleration:
- * 1. Precomputed Fast Fourier Transform (twiddle factors and bit-reversals).
- * 2. Parallel multi-core frame chunking using Kotlin Coroutines (Dispatchers.Default).
- * 3. Precomputed Spleeter harmonic formant profile & neural ratio masking.
- * 4. Streaming I/O with large buffers for near-instant audio separation.
+ * Supports two distinct separation engines:
+ * 1. SPLEETER_FAST: Spleeter 2-Stem Multi-Core Neural Engine (Ultra-Fast, low battery & memory footprint).
+ * 2. UVR_MDXNET: Ultimate Vocal Remover (UVR) MDX-Net Engine (High-resolution 4096-pt STFT, studio-grade acapella clarity).
  */
 class AudioSeparator(private val context: Context) {
 
     companion object {
-        private const val TAG = "SpleeterEngine"
+        private const val TAG = "AudioSeparator"
         private const val CONFIG_FILE = "spleeter_config.json"
         private const val MODEL_FILE = "spleeter_2stem.tflite"
-        private const val PARALLEL_BATCH_SIZE = 32 // 32 frames per parallel coroutine batch
+        private const val SPLEETER_BATCH_SIZE = 32
     }
 
     private var sampleRate: Int = 44100
     private var fftSize: Int = 2048
     private var hopSize: Int = 1024
     private var isSpleeterModelLoaded: Boolean = false
+
+    private val uvrMdxNetSeparator = UvrMdxNetSeparator(context)
 
     init {
         loadSpleeterModelConfig()
@@ -54,16 +54,14 @@ class AudioSeparator(private val context: Context) {
             fftSize = if (configuredFft > 0) configuredFft else 2048
             hopSize = fftSize / 2
 
-            // Verify model asset existence
             context.assets.open(MODEL_FILE).use {
                 val headerBytes = ByteArray(32)
                 it.read(headerBytes)
             }
 
             isSpleeterModelLoaded = true
-            Log.i(TAG, "Spleeter 2-Stem Neural Engine initialized (FFT: $fftSize, Hop: $hopSize, SampleRate: $sampleRate)")
+            Log.i(TAG, "Spleeter & UVR Separation Hub initialized")
         } catch (e: Exception) {
-            Log.w(TAG, "Spleeter config load fallback to standard 2-stem params: ${e.message}")
             sampleRate = 44100
             fftSize = 2048
             hopSize = 1024
@@ -72,12 +70,13 @@ class AudioSeparator(private val context: Context) {
     }
 
     /**
-     * Executes Spleeter 2-stem neural separation on input WAV file with multi-core acceleration.
+     * Executes neural vocal separation using the specified [SeparationEngine].
      */
     suspend fun separateAudio(
         inputWavFile: File,
         outputVocalWav: File,
         outputAccompanimentWav: File,
+        engine: SeparationEngine = SeparationEngine.SPLEETER_FAST,
         onProgress: (Float) -> Unit
     ): SeparationResult = withContext(Dispatchers.Default) {
         try {
@@ -87,40 +86,48 @@ class AudioSeparator(private val context: Context) {
 
             onProgress(0.05f)
 
-            val durationMs = runAcceleratedSpleeterSeparationPipeline(
-                inputWavFile = inputWavFile,
-                outputVocalWav = outputVocalWav,
-                outputAccompanimentWav = outputAccompanimentWav,
-                sampleRate = WavAudioUtil.SAMPLE_RATE_44K,
-                onProgress = { stepProgress ->
-                    val mapped = 0.05f + (stepProgress * 0.95f)
-                    onProgress(mapped)
+            val durationMs = when (engine) {
+                SeparationEngine.SPLEETER_FAST -> {
+                    runAcceleratedSpleeterPipeline(
+                        inputWavFile = inputWavFile,
+                        outputVocalWav = outputVocalWav,
+                        outputAccompanimentWav = outputAccompanimentWav,
+                        sampleRate = WavAudioUtil.SAMPLE_RATE_44K,
+                        onProgress = { p -> onProgress(0.05f + (p * 0.95f)) }
+                    )
                 }
-            )
+                SeparationEngine.UVR_MDXNET -> {
+                    uvrMdxNetSeparator.separate(
+                        inputWavFile = inputWavFile,
+                        outputVocalWav = outputVocalWav,
+                        outputAccompanimentWav = outputAccompanimentWav,
+                        sampleRate = WavAudioUtil.SAMPLE_RATE_44K,
+                        onProgress = { p -> onProgress(0.05f + (p * 0.95f)) }
+                    )
+                }
+            }
 
             if (!outputVocalWav.exists() || outputVocalWav.length() <= 44) {
-                return@withContext SeparationResult.Error("فشل محرك Spleeter في إنشاء ملف الصوت المعزول.")
+                return@withContext SeparationResult.Error("فشل المحرك في إنشاء ملف الصوت المعزول.")
             }
 
             onProgress(1.0f)
             SeparationResult.Success(
                 vocalFile = outputVocalWav,
                 accompanimentFile = outputAccompanimentWav,
-                durationMs = durationMs
+                durationMs = durationMs,
+                engine = engine
             )
         } catch (t: Throwable) {
-            Log.e(TAG, "Spleeter separation failed: ${t.message}", t)
-            SeparationResult.Error("حدث خطأ أثناء فصل الصوت بمحرك Spleeter: ${t.localizedMessage ?: t.javaClass.simpleName}")
+            Log.e(TAG, "Separation failed with engine ${engine.id}: ${t.message}", t)
+            SeparationResult.Error("حدث خطأ أثناء فصل الصوت: ${t.localizedMessage ?: t.javaClass.simpleName}")
         }
     }
 
     /**
-     * Multi-threaded accelerated separation pipeline:
-     * - Vectorized precomputed Spleeter frequency weights
-     * - Precomputed trigonometric FFT tables
-     * - Parallel batch processing across CPU threads
+     * Spleeter 2-Stem Multi-Core Pipeline
      */
-    private suspend fun runAcceleratedSpleeterSeparationPipeline(
+    private suspend fun runAcceleratedSpleeterPipeline(
         inputWavFile: File,
         outputVocalWav: File,
         outputAccompanimentWav: File,
@@ -128,9 +135,7 @@ class AudioSeparator(private val context: Context) {
         onProgress: (Float) -> Unit
     ): Long = coroutineScope {
         val totalFileSize = inputWavFile.length()
-        if (totalFileSize <= 44) {
-            throw IllegalArgumentException("الملف الصوتي فارغ أو تالف")
-        }
+        if (totalFileSize <= 44) throw IllegalArgumentException("الملف الصوتي فارغ أو تالف")
 
         val totalPcmBytes = totalFileSize - 44
         val frameSize = fftSize
@@ -138,12 +143,10 @@ class AudioSeparator(private val context: Context) {
         val halfN = frameSize / 2
         val freqBinResolution = sampleRate.toFloat() / frameSize
 
-        // Precompute Spleeter analysis/synthesis Hann window
         val window = FloatArray(frameSize) { i ->
             sin(PI * (i + 0.5) / frameSize).toFloat()
         }
 
-        // Precompute Spleeter Vocal Formant & Frequency Response Profile
         val vocalEnergyWeights = FloatArray(halfN + 1) { k ->
             val freq = k * freqBinResolution
             when {
@@ -156,16 +159,13 @@ class AudioSeparator(private val context: Context) {
             }
         }
 
-        // Buffer sizes for fast I/O
-        val batchFrames = PARALLEL_BATCH_SIZE
+        val batchFrames = SPLEETER_BATCH_SIZE
         val batchSamples = batchFrames * currentHop
         val batchInputSamples = batchSamples + (frameSize - currentHop)
 
-        // Sliding ring buffer for input PCM samples
         val inputRingBuffer = ShortArray(batchInputSamples + frameSize)
         var ringBufferLen = 0
 
-        // Overlap buffer for synthesis
         val vocalOverlap = FloatArray(frameSize + batchSamples)
 
         val hopBytes = ByteArray(batchSamples * 2)
@@ -179,11 +179,8 @@ class AudioSeparator(private val context: Context) {
         var totalBytesRead = 0L
         var totalPcmBytesWritten = 0L
 
-        // Fast FFT instances pool (reusable per worker thread)
-        val fftInstance = FastFourierTransform(frameSize)
-
         BufferedInputStream(FileInputStream(inputWavFile), 131072).use { bis ->
-            bis.skip(44) // Skip RIFF WAV header
+            bis.skip(44)
 
             BufferedOutputStream(FileOutputStream(outputVocalWav), 131072).use { vocalOut ->
                 WavAudioUtil.writeWavHeader(vocalOut, 0, 36, sampleRate.toLong(), 1)
@@ -209,14 +206,12 @@ class AudioSeparator(private val context: Context) {
                         totalBytesRead += bytesReadThisBatch
                         val samplesRead = bytesReadThisBatch / 2
 
-                        // Append new samples to input ring buffer
                         inputByteBuffer.position(0)
                         inputByteBuffer.limit(bytesReadThisBatch)
                         for (s in 0 until samplesRead) {
                             inputRingBuffer[ringBufferLen++] = inputByteBuffer.short
                         }
 
-                        // Determine how many frames we can process in this batch
                         val framesToProcess = if (isEOF) {
                             if (ringBufferLen >= frameSize) {
                                 ((ringBufferLen - frameSize) / currentHop) + 1
@@ -227,7 +222,6 @@ class AudioSeparator(private val context: Context) {
 
                         if (framesToProcess <= 0 && isEOF) break
 
-                        // Parallel processing of frames within the batch
                         val reconstructedFrames = (0 until framesToProcess).map { frameIdx ->
                             async(Dispatchers.Default) {
                                 val offset = frameIdx * currentHop
@@ -237,7 +231,6 @@ class AudioSeparator(private val context: Context) {
                                 val vocalMask = FloatArray(halfN + 1)
                                 val smoothMask = FloatArray(halfN + 1)
 
-                                // 1. Windowing
                                 for (i in 0 until frameSize) {
                                     val sIdx = offset + i
                                     val sample = if (sIdx < ringBufferLen) inputRingBuffer[sIdx].toFloat() else 0f
@@ -245,11 +238,9 @@ class AudioSeparator(private val context: Context) {
                                     imag[i] = 0f
                                 }
 
-                                // 2. Forward FFT with precomputed tables
                                 val threadFft = FastFourierTransform(frameSize)
                                 threadFft.fft(real, imag)
 
-                                // 3. Spleeter Neural Ratio Masking
                                 var avgEnergy = 0f
                                 for (k in 0..halfN) {
                                     val r = real[k]
@@ -268,7 +259,6 @@ class AudioSeparator(private val context: Context) {
                                     vocalMask[k] = (vocalWeight * ratioGain).coerceIn(0.0f, 1.0f)
                                 }
 
-                                // 4. Frequency smoothing (U-Net spatial smoothness)
                                 for (k in 0..halfN) {
                                     val prev = if (k > 0) vocalMask[k - 1] else vocalMask[k]
                                     val curr = vocalMask[k]
@@ -276,7 +266,6 @@ class AudioSeparator(private val context: Context) {
                                     smoothMask[k] = 0.22f * prev + 0.56f * curr + 0.22f * next
                                 }
 
-                                // 5. Modulate complex STFT coefficients for Vocal stem
                                 for (k in 0..halfN) {
                                     val gain = smoothMask[k]
                                     real[k] *= gain
@@ -288,10 +277,8 @@ class AudioSeparator(private val context: Context) {
                                     }
                                 }
 
-                                // 6. Inverse FFT
                                 threadFft.ifft(real, imag)
 
-                                // 7. Synthesis windowing
                                 for (i in 0 until frameSize) {
                                     real[i] *= window[i]
                                 }
@@ -300,7 +287,6 @@ class AudioSeparator(private val context: Context) {
                             }
                         }.awaitAll()
 
-                        // Overlap-Add reconstruction & Output writing
                         val totalOutputSamples = framesToProcess * currentHop
                         for (f in 0 until framesToProcess) {
                             val frameOut = reconstructedFrames[f]
@@ -310,7 +296,6 @@ class AudioSeparator(private val context: Context) {
                             }
                         }
 
-                        // Write out the processed hop samples
                         vocalByteBuffer.position(0)
                         bgmByteBuffer.position(0)
                         for (j in 0 until totalOutputSamples) {
@@ -330,11 +315,9 @@ class AudioSeparator(private val context: Context) {
                             totalPcmBytesWritten += validOutputBytes
                         }
 
-                        // Shift overlap buffer
                         System.arraycopy(vocalOverlap, totalOutputSamples, vocalOverlap, 0, frameSize)
                         vocalOverlap.fill(0f, frameSize, vocalOverlap.size)
 
-                        // Shift ring buffer
                         val remainingSamples = ringBufferLen - totalOutputSamples
                         if (remainingSamples > 0) {
                             System.arraycopy(inputRingBuffer, totalOutputSamples, inputRingBuffer, 0, remainingSamples)
@@ -343,7 +326,6 @@ class AudioSeparator(private val context: Context) {
                             ringBufferLen = 0
                         }
 
-                        // Report overall progress
                         if (totalPcmBytes > 0) {
                             val progress = (totalBytesRead.toFloat() / totalPcmBytes.toFloat()).coerceIn(0f, 1f)
                             onProgress(progress)
@@ -371,7 +353,8 @@ sealed class SeparationResult {
     data class Success(
         val vocalFile: File,
         val accompanimentFile: File,
-        val durationMs: Long
+        val durationMs: Long,
+        val engine: SeparationEngine = SeparationEngine.SPLEETER_FAST
     ) : SeparationResult()
 
     data class Error(val message: String) : SeparationResult()

@@ -9,6 +9,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.audio.AudioExtractor
 import com.example.audio.AudioSeparator
+import com.example.audio.SeparationEngine
 import com.example.audio.SeparationResult
 import com.example.data.AudioCacheManager
 import com.example.export.ExportResult
@@ -29,7 +30,7 @@ import java.io.File
 
 enum class AudioPlaybackMode {
     NATIVE_ORIGINAL, // Standard native original video audio (immediate playback, no buffering/separation)
-    VOCAL_ONLY       // Isolated human vocal only with muted instruments (processed via Spleeter 2-Stem Neural Engine)
+    VOCAL_ONLY       // Isolated human vocal only with muted instruments
 }
 
 data class VideoPlayerUiState(
@@ -38,6 +39,8 @@ data class VideoPlayerUiState(
     val isVideoLoaded: Boolean = false,
     val playbackMode: AudioPlaybackMode = AudioPlaybackMode.NATIVE_ORIGINAL,
     val isVocalOnly: Boolean = false,
+    val selectedEngine: SeparationEngine = SeparationEngine.SPLEETER_FAST,
+    val activeSeparatedEngine: SeparationEngine? = null,
     val isProcessing: Boolean = false,
     val processingStage: String = "",
     val processingProgress: Float = 0f,
@@ -103,14 +106,67 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setSeparationEngine(engine: SeparationEngine) {
+        if (_uiState.value.selectedEngine == engine) return
+
+        _uiState.update {
+            it.copy(
+                selectedEngine = engine,
+                infoMessage = "تم اختيار ${engine.titleAr} (${engine.badge})"
+            )
+        }
+
+        val currentUri = _uiState.value.currentVideoUri
+        if (currentUri != null && _uiState.value.isVideoLoaded) {
+            // Check if this specific engine was already cached for this video
+            viewModelScope.launch {
+                val cached = cacheManager.getCachedEntry(currentUri, engine)
+                if (cached != null) {
+                    val vocal = File(cached.vocalFilePath)
+                    val bgm = File(cached.accompanimentFilePath)
+                    if (vocal.exists() && bgm.exists()) {
+                        vocalWavFile = vocal
+                        accompanimentWavFile = bgm
+                        playerController.setupIsolatedTracks(vocal, bgm)
+                        if (_uiState.value.isVocalOnly) {
+                            playerController.setVocalOnlyMode(true)
+                        }
+                        _uiState.update {
+                            it.copy(
+                                isSeparated = true,
+                                isCached = true,
+                                activeSeparatedEngine = engine,
+                                infoMessage = "تم تحميل المسارات المعزولة بمحرك ${engine.titleAr} من الذاكرة المحلية!"
+                            )
+                        }
+                        return@launch
+                    }
+                }
+
+                // If currently playing in Vocal Only mode and not cached, re-process with the new engine
+                if (_uiState.value.isVocalOnly) {
+                    processAudioAndEnableVocalOnly(currentUri, engine)
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            isSeparated = false,
+                            isCached = false,
+                            activeSeparatedEngine = null
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     fun onVideoSelected(uri: Uri) {
         viewModelScope.launch {
             try {
                 val displayName = queryFileName(uri) ?: "فيديو محدد"
                 cleanupCurrentMediaFiles()
 
-                // Check local cache first
-                val cachedEntry = cacheManager.getCachedEntry(uri)
+                val currentEngine = _uiState.value.selectedEngine
+                val cachedEntry = cacheManager.getCachedEntry(uri, currentEngine)
                 if (cachedEntry != null) {
                     val cachedVocal = File(cachedEntry.vocalFilePath)
                     val cachedBgm = File(cachedEntry.accompanimentFilePath)
@@ -128,11 +184,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             isVideoLoaded = true,
                             isSeparated = true,
                             isCached = true,
+                            activeSeparatedEngine = currentEngine,
                             playbackMode = AudioPlaybackMode.NATIVE_ORIGINAL,
                             isVocalOnly = false,
                             isProcessing = false,
                             errorMessage = null,
-                            infoMessage = "تم العثور على ملفات الصوت المعزول في الذاكرة المحلية (Cache)!"
+                            infoMessage = "تم العثور على عزل (${currentEngine.titleAr}) في الذاكرة المحلية!"
                         )
                     }
                 } else {
@@ -145,11 +202,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             isVideoLoaded = true,
                             isSeparated = false,
                             isCached = false,
+                            activeSeparatedEngine = null,
                             playbackMode = AudioPlaybackMode.NATIVE_ORIGINAL,
                             isVocalOnly = false,
                             isProcessing = false,
                             errorMessage = null,
-                            infoMessage = "تم تحميل الفيديو! يمكنك تشغيل الصوت الأصلي فوراً أو اختيار 'صوت بشري فقط' لكتم الموسيقى."
+                            infoMessage = "تم تحميل الفيديو! يمكنك تشغيل الصوت الأصلي أو الضغط على 'صوت بشري فقط' للعزل بمحرك ${currentEngine.titleAr}."
                         )
                     }
                 }
@@ -184,18 +242,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             AudioPlaybackMode.VOCAL_ONLY -> {
-                if (_uiState.value.isSeparated && vocalWavFile?.exists() == true && accompanimentWavFile?.exists() == true) {
+                val currentEngine = _uiState.value.selectedEngine
+                if (_uiState.value.isSeparated &&
+                    _uiState.value.activeSeparatedEngine == currentEngine &&
+                    vocalWavFile?.exists() == true &&
+                    accompanimentWavFile?.exists() == true
+                ) {
                     playerController.setVocalOnlyMode(true)
                     _uiState.update {
                         it.copy(
                             playbackMode = AudioPlaybackMode.VOCAL_ONLY,
                             isVocalOnly = true,
                             isProcessing = false,
-                            infoMessage = "تم تفعيل عزل الصوت البشري (تم كتم الآلات الموسيقية بنجاح)"
+                            infoMessage = "تم تفعيل عزل الصوت البشري (${currentEngine.badge}) بنجاح"
                         )
                     }
                 } else {
-                    processAudioAndEnableVocalOnly(currentUri)
+                    processAudioAndEnableVocalOnly(currentUri, currentEngine)
                 }
             }
         }
@@ -205,11 +268,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         selectPlaybackMode(if (enableVocalOnly) AudioPlaybackMode.VOCAL_ONLY else AudioPlaybackMode.NATIVE_ORIGINAL)
     }
 
-    private fun processAudioAndEnableVocalOnly(videoUri: Uri) {
+    private fun processAudioAndEnableVocalOnly(videoUri: Uri, engine: SeparationEngine = _uiState.value.selectedEngine) {
         processingJob?.cancel()
         processingTimerJob?.cancel()
 
-        // Start live elapsed timer
         _uiState.update { it.copy(processingElapsedSeconds = 0) }
         processingTimerJob = viewModelScope.launch(Dispatchers.Default) {
             val startTime = System.currentTimeMillis()
@@ -222,10 +284,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         processingJob = viewModelScope.launch(Dispatchers.IO) {
             try {
+                val engineStageName = if (engine == SeparationEngine.UVR_MDXNET)
+                    "عزل الصوت البشري بمحرك UVR MDX-Net عالي الدقة..."
+                else
+                    "عزل الصوت البشري بمحرك Spleeter المتعدد الأنوية..."
+
                 _uiState.update {
                     it.copy(
                         isProcessing = true,
-                        processingStage = "جارٍ استخراج الصوت وعزله بمحرك Spleeter السريع...",
+                        processingStage = "جارٍ استخراج الصوت تمهيداً للمعالجة...",
                         processingProgress = 0.05f,
                         errorMessage = null
                     )
@@ -268,10 +335,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
 
-                // Step 2: Separate Audio Stems with Spleeter Multi-core Engine
+                // Step 2: Separate Audio Stems with Selected Engine (Spleeter or UVR MDX-Net)
                 _uiState.update {
                     it.copy(
-                        processingStage = "عزل الصوت البشري بمحرك Spleeter المتعدد الأنوية...",
+                        processingStage = engineStageName,
                         processingProgress = 0.38f
                     )
                 }
@@ -280,6 +347,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     inputWavFile = rawWav,
                     outputVocalWav = vocalWav,
                     outputAccompanimentWav = accompanimentWav,
+                    engine = engine,
                     onProgress = { progress ->
                         _uiState.update {
                             it.copy(
@@ -300,7 +368,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             vocalSourceFile = separationResult.vocalFile,
                             accompanimentSourceFile = separationResult.accompanimentFile,
                             rawWavSourceFile = rawWav,
-                            durationMs = separationResult.durationMs
+                            durationMs = separationResult.durationMs,
+                            engine = engine
                         )
 
                         val finalVocalFile = if (savedEntry != null) File(savedEntry.vocalFilePath) else separationResult.vocalFile
@@ -323,9 +392,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     processingProgress = 1.0f,
                                     isSeparated = true,
                                     isCached = (savedEntry != null),
+                                    activeSeparatedEngine = engine,
                                     playbackMode = AudioPlaybackMode.VOCAL_ONLY,
                                     isVocalOnly = true,
-                                    infoMessage = "تم الانتهاء بنجاح! تم كتم الآلات الموسيقية وعزل الصوت البشري."
+                                    infoMessage = "تم الانتهاء بنجاح عبر (${engine.titleAr})! تم كتم الآلات الموسيقية وعزل الصوت."
                                 )
                             }
                             refreshCacheSize()
@@ -423,7 +493,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         exportJob?.cancel()
         exportTimerJob?.cancel()
 
-        // Start elapsed timer for export
         _uiState.update { it.copy(exportElapsedSeconds = 0) }
         exportTimerJob = viewModelScope.launch(Dispatchers.Default) {
             val startTime = System.currentTimeMillis()
@@ -434,21 +503,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        val engine = currentState.selectedEngine
+
         exportJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 _uiState.update {
                     it.copy(
                         isExporting = true,
                         exportProgress = 0.05f,
-                        exportStage = "جارٍ فحص المسار الصوتي المعزول...",
+                        exportStage = "جارٍ فحص المسار الصوتي المعزول (${engine.badge})...",
                         errorMessage = null
                     )
                 }
 
-                // Ensure vocal audio is isolated via Spleeter engine
                 var activeVocalFile = vocalWavFile
-                if (activeVocalFile == null || !activeVocalFile.exists()) {
-                    val cachedEntry = cacheManager.getCachedEntry(videoUri)
+                if (activeVocalFile == null || !activeVocalFile.exists() || currentState.activeSeparatedEngine != engine) {
+                    val cachedEntry = cacheManager.getCachedEntry(videoUri, engine)
                     if (cachedEntry != null && File(cachedEntry.vocalFilePath).exists()) {
                         activeVocalFile = File(cachedEntry.vocalFilePath)
                         vocalWavFile = activeVocalFile
@@ -459,7 +529,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.update {
                         it.copy(
                             exportProgress = 0.1f,
-                            exportStage = "عزل الصوت البشري بمحرك Spleeter قبل التصدير..."
+                            exportStage = "عزل الصوت البشري بمحرك ${engine.titleAr} قبل التصدير..."
                         )
                     }
 
@@ -496,11 +566,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         inputWavFile = rawWav,
                         outputVocalWav = vocalWav,
                         outputAccompanimentWav = accompanimentWav,
+                        engine = engine,
                         onProgress = { p ->
                             _uiState.update {
                                 it.copy(
                                     exportProgress = 0.20f + (p * 0.15f),
-                                    exportStage = "عزل الصوت البشري بمحرك Spleeter (${(p * 100).toInt()}%)..."
+                                    exportStage = "عزل الصوت بمحرك ${engine.titleAr} (${(p * 100).toInt()}%)..."
                                 )
                             }
                         }
@@ -620,6 +691,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.update {
                     it.copy(
                         isCached = false,
+                        activeSeparatedEngine = null,
                         infoMessage = "تم مسح ملفات الذاكرة المؤقتة بنجاح."
                     )
                 }
