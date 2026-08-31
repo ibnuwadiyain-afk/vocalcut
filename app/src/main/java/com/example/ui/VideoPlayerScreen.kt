@@ -49,13 +49,26 @@ fun VideoPlayerScreen(
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val spleeterStatus by viewModel.spleeterModelStatus.collectAsStateWithLifecycle()
+    val uvrStatus by viewModel.uvrModelStatus.collectAsStateWithLifecycle()
     val isPlaying by viewModel.playerController.isPlaying.collectAsStateWithLifecycle()
     val positionMs by viewModel.playerController.playbackPositionMs.collectAsStateWithLifecycle()
     val durationMs by viewModel.playerController.durationMs.collectAsStateWithLifecycle()
 
     var showInfoDialog by remember { mutableStateOf(false) }
+    var pendingImportEngine by remember { mutableStateOf<com.example.audio.SeparationEngine?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val lifecycleOwner = LocalLifecycleOwner.current
+
+    val importModelLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            pendingImportEngine?.let { engine ->
+                viewModel.importNeuralModel(engine, it)
+            }
+        }
+    }
 
     // Background playback lifecycle handling
     DisposableEffect(lifecycleOwner, uiState.isBackgroundPlayEnabled) {
@@ -436,11 +449,23 @@ fun VideoPlayerScreen(
                         }
                     )
 
-                    // Separation Engine Selector (UVR MDX-Net Studio vs Spleeter Fast)
+                    // Separation Engine Selector (UVR MDX-Net Studio vs Spleeter Fast with TFLite Neural Model Management)
                     SeparationEngineSelectorCard(
                         selectedEngine = uiState.selectedEngine,
+                        spleeterStatus = spleeterStatus,
+                        uvrStatus = uvrStatus,
                         onSelectEngine = { engine ->
                             viewModel.setSeparationEngine(engine)
+                        },
+                        onDownloadModel = { engine ->
+                            viewModel.downloadNeuralModel(engine)
+                        },
+                        onImportModel = { engine ->
+                            pendingImportEngine = engine
+                            importModelLauncher.launch("*/*")
+                        },
+                        onDeleteModel = { engine ->
+                            viewModel.deleteNeuralModel(engine)
                         }
                     )
 

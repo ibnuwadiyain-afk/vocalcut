@@ -741,6 +741,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         accompanimentWavFile = null
     }
 
+    val neuralModelManager = audioSeparator.modelManager
+    val spleeterModelStatus = neuralModelManager.spleeterStatus
+    val uvrModelStatus = neuralModelManager.uvrStatus
+
+    fun downloadNeuralModel(engine: SeparationEngine) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(infoMessage = "جاري بدء تحميل نموذج ${engine.displayName} للذكاء الاصطناعي...") }
+            val success = neuralModelManager.downloadModel(engine)
+            if (success) {
+                _uiState.update { it.copy(infoMessage = "تم تثبيت نموذج ${engine.displayName} بنجاح! جاهز للعزل الحقيقي.") }
+            } else {
+                _uiState.update { it.copy(errorMessage = "تعذر تحميل النموذج، تحقق من اتصال الإنترنت أو استخدم استيراد ملف.") }
+            }
+        }
+    }
+
+    fun importNeuralModel(engine: SeparationEngine, uri: Uri) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(infoMessage = "جاري استيراد نموذج الذكاء الاصطناعي...") }
+            val success = neuralModelManager.importModelFromUri(engine, uri)
+            if (success) {
+                _uiState.update { it.copy(infoMessage = "تم استيراد النموذج بنجاح وتفعيله محلياً!") }
+            } else {
+                _uiState.update { it.copy(errorMessage = "فشل استيراد النموذج. تأكد من صحة ملف .tflite") }
+            }
+        }
+    }
+
+    fun deleteNeuralModel(engine: SeparationEngine) {
+        val deleted = neuralModelManager.deleteModel(engine)
+        if (deleted) {
+            _uiState.update { it.copy(infoMessage = "تم حذف نموذج ${engine.displayName} وتحرير المساحة.") }
+        }
+    }
+
     fun cleanupTempFiles() {
         viewModelScope.launch(Dispatchers.IO) {
             try {

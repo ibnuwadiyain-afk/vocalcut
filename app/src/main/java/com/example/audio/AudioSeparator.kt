@@ -36,6 +36,8 @@ class AudioSeparator(private val context: Context) {
     private var isSpleeterModelLoaded: Boolean = true
 
     private val uvrMdxNetSeparator = UvrMdxNetSeparator(context)
+    val modelManager = NeuralModelManager(context)
+    private val tfliteNeuralSeparator = TFLiteNeuralSeparator(context)
 
     init {
         // High fidelity 44.1kHz / 2048 FFT configuration
@@ -61,6 +63,21 @@ class AudioSeparator(private val context: Context) {
             }
 
             onProgress(0.05f)
+
+            // If true on-device TFLite neural model weights are installed, execute full neural network inference
+            if (modelManager.isModelReady(engine)) {
+                Log.i(TAG, "Running on-device TFLite Neural Model for $engine")
+                val tfliteResult = tfliteNeuralSeparator.separate(
+                    engine = engine,
+                    inputWavFile = inputWavFile,
+                    outputVocalWav = outputVocalWav,
+                    outputAccompanimentWav = outputAccompanimentWav,
+                    onProgress = onProgress
+                )
+                if (tfliteResult is SeparationResult.Success) {
+                    return@withContext tfliteResult
+                }
+            }
 
             val durationMs = when (engine) {
                 SeparationEngine.SPLEETER_FAST -> {

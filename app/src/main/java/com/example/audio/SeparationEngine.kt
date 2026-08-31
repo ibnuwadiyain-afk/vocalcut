@@ -27,5 +27,7 @@ enum class SeparationEngine(
         titleEn = "Ultimate Vocal Remover (MDX-Net)",
         subtitleAr = "عزل دقيق احترافي مستوحى من UVR لمنع تسرب الآلات الموسيقية",
         badge = "🎧 جودة استوديو"
-    )
+    );
+
+    val displayName: String get() = titleAr
 }

@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.audio.ModelStatus
 import com.example.audio.SeparationEngine
 import com.example.export.ExportType
 import com.example.ui.theme.*
@@ -594,11 +595,17 @@ fun PlaybackModeSelectorCard(
 
 /**
  * UVR MDX-Net & Spleeter Fast Separation Engine Selector Card
+ * with on-device TFLite Neural Model download and import controls.
  */
 @Composable
 fun SeparationEngineSelectorCard(
     selectedEngine: SeparationEngine,
+    spleeterStatus: ModelStatus? = null,
+    uvrStatus: ModelStatus? = null,
     onSelectEngine: (SeparationEngine) -> Unit,
+    onDownloadModel: ((SeparationEngine) -> Unit)? = null,
+    onImportModel: ((SeparationEngine) -> Unit)? = null,
+    onDeleteModel: ((SeparationEngine) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -635,12 +642,19 @@ fun SeparationEngineSelectorCard(
                         )
                     }
                     Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "محرك عزل الصوت (Separation Engine)",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimaryDark
-                    )
+                    Column {
+                        Text(
+                            text = "محرك عزل الصوت (Separation Engine)",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimaryDark
+                        )
+                        Text(
+                            text = "عزل ذكاء اصطناعي حقيقي بالكامل على الجهاز (Offline)",
+                            fontSize = 10.sp,
+                            color = TextSecondaryDark
+                        )
+                    }
                 }
 
                 Surface(
@@ -648,10 +662,10 @@ fun SeparationEngineSelectorCard(
                     color = Navy900
                 ) {
                     Text(
-                        text = "اختياري",
+                        text = "TFLite Engine",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        color = TextSecondaryDark,
+                        color = CyanAccent,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
@@ -661,6 +675,9 @@ fun SeparationEngineSelectorCard(
 
             // Engine 1: Spleeter Fast
             val isSpleeterSelected = (selectedEngine == SeparationEngine.SPLEETER_FAST)
+            val spleeterInstalled = spleeterStatus?.isInstalled == true
+            val spleeterDownloading = spleeterStatus?.isDownloading == true
+
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -674,60 +691,162 @@ fun SeparationEngineSelectorCard(
                     color = if (isSpleeterSelected) CyanAccent else Navy700
                 )
             ) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(12.dp)
                 ) {
-                    RadioButton(
-                        selected = isSpleeterSelected,
-                        onClick = { onSelectEngine(SeparationEngine.SPLEETER_FAST) },
-                        colors = RadioButtonDefaults.colors(
-                            selectedColor = CyanAccent,
-                            unselectedColor = TextSecondaryDark
-                        ),
-                        modifier = Modifier.size(20.dp)
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = isSpleeterSelected,
+                            onClick = { onSelectEngine(SeparationEngine.SPLEETER_FAST) },
+                            colors = RadioButtonDefaults.colors(
+                                selectedColor = CyanAccent,
+                                unselectedColor = TextSecondaryDark
+                            ),
+                            modifier = Modifier.size(20.dp)
+                        )
 
-                    Spacer(modifier = Modifier.width(10.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
 
-                    Column(modifier = Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = SeparationEngine.SPLEETER_FAST.titleAr,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = if (isSpleeterSelected) CyanAccent else TextPrimaryDark
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = CyanAccent.copy(alpha = 0.18f)
-                            ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = SeparationEngine.SPLEETER_FAST.badge,
-                                    fontSize = 9.sp,
+                                    text = SeparationEngine.SPLEETER_FAST.titleAr,
                                     fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = if (isSpleeterSelected) CyanAccent else TextPrimaryDark
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = CyanAccent.copy(alpha = 0.18f)
+                                ) {
+                                    Text(
+                                        text = SeparationEngine.SPLEETER_FAST.badge,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = CyanAccent,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = if (spleeterInstalled) EmeraldSuccess.copy(alpha = 0.2f) else AmberWarning.copy(alpha = 0.2f)
+                                ) {
+                                    Text(
+                                        text = if (spleeterInstalled) "نموذج TFLite جاهز" else "يحتاج تنزيل",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (spleeterInstalled) EmeraldSuccess else AmberWarning,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = SeparationEngine.SPLEETER_FAST.subtitleAr,
+                                fontSize = 11.sp,
+                                color = TextSecondaryDark
+                            )
+                        }
+                    }
+
+                    // Spleeter Model Download / Import Controls
+                    if (!spleeterInstalled) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        if (spleeterDownloading) {
+                            Column(modifier = Modifier.fillMaxWidth().padding(start = 30.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "جاري تحميل أوزان نموذج Spleeter (TFLite)...",
+                                        fontSize = 10.sp,
+                                        color = CyanAccent
+                                    )
+                                    Text(
+                                        text = "${((spleeterStatus?.downloadProgress ?: 0f) * 100).toInt()}%",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = CyanAccent
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                LinearProgressIndicator(
+                                    progress = { spleeterStatus?.downloadProgress ?: 0f },
+                                    modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
                                     color = CyanAccent,
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    trackColor = Navy600
                                 )
                             }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(start = 30.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Button(
+                                    onClick = { onDownloadModel?.invoke(SeparationEngine.SPLEETER_FAST) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudDownload,
+                                        contentDescription = null,
+                                        tint = Navy900,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "تحميل النموذج (~25MB)",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Navy900
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(6.dp))
+
+                                OutlinedButton(
+                                    onClick = { onImportModel?.invoke(SeparationEngine.SPLEETER_FAST) },
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Navy600),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.FileOpen,
+                                        contentDescription = null,
+                                        tint = TextSecondaryDark,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "استيراد .tflite",
+                                        fontSize = 10.sp,
+                                        color = TextSecondaryDark
+                                    )
+                                }
+                            }
                         }
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = SeparationEngine.SPLEETER_FAST.subtitleAr,
-                            fontSize = 11.sp,
-                            color = TextSecondaryDark
-                        )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Engine 2: UVR MDX-Net Studio
             val isUvrSelected = (selectedEngine == SeparationEngine.UVR_MDXNET)
+            val uvrInstalled = uvrStatus?.isInstalled == true
+            val uvrDownloading = uvrStatus?.isDownloading == true
+
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -741,52 +860,151 @@ fun SeparationEngineSelectorCard(
                     color = if (isUvrSelected) PurpleAccent else Navy700
                 )
             ) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(12.dp)
                 ) {
-                    RadioButton(
-                        selected = isUvrSelected,
-                        onClick = { onSelectEngine(SeparationEngine.UVR_MDXNET) },
-                        colors = RadioButtonDefaults.colors(
-                            selectedColor = PurpleAccent,
-                            unselectedColor = TextSecondaryDark
-                        ),
-                        modifier = Modifier.size(20.dp)
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = isUvrSelected,
+                            onClick = { onSelectEngine(SeparationEngine.UVR_MDXNET) },
+                            colors = RadioButtonDefaults.colors(
+                                selectedColor = PurpleAccent,
+                                unselectedColor = TextSecondaryDark
+                            ),
+                            modifier = Modifier.size(20.dp)
+                        )
 
-                    Spacer(modifier = Modifier.width(10.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
 
-                    Column(modifier = Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = SeparationEngine.UVR_MDXNET.titleAr,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = if (isUvrSelected) PurpleAccent else TextPrimaryDark
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = PurpleAccent.copy(alpha = 0.22f)
-                            ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = SeparationEngine.UVR_MDXNET.badge,
-                                    fontSize = 9.sp,
+                                    text = SeparationEngine.UVR_MDXNET.titleAr,
                                     fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = if (isUvrSelected) PurpleAccent else TextPrimaryDark
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = PurpleAccent.copy(alpha = 0.22f)
+                                ) {
+                                    Text(
+                                        text = SeparationEngine.UVR_MDXNET.badge,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = PurpleAccent,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = if (uvrInstalled) EmeraldSuccess.copy(alpha = 0.2f) else AmberWarning.copy(alpha = 0.2f)
+                                ) {
+                                    Text(
+                                        text = if (uvrInstalled) "نموذج TFLite جاهز" else "يحتاج تنزيل",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (uvrInstalled) EmeraldSuccess else AmberWarning,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = SeparationEngine.UVR_MDXNET.subtitleAr,
+                                fontSize = 11.sp,
+                                color = TextSecondaryDark
+                            )
+                        }
+                    }
+
+                    // UVR Model Download / Import Controls
+                    if (!uvrInstalled) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        if (uvrDownloading) {
+                            Column(modifier = Modifier.fillMaxWidth().padding(start = 30.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "جاري تحميل أوزان نموذج UVR MDX-Net...",
+                                        fontSize = 10.sp,
+                                        color = PurpleAccent
+                                    )
+                                    Text(
+                                        text = "${((uvrStatus?.downloadProgress ?: 0f) * 100).toInt()}%",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = PurpleAccent
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                LinearProgressIndicator(
+                                    progress = { uvrStatus?.downloadProgress ?: 0f },
+                                    modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
                                     color = PurpleAccent,
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    trackColor = Navy600
                                 )
                             }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(start = 30.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Button(
+                                    onClick = { onDownloadModel?.invoke(SeparationEngine.UVR_MDXNET) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = PurpleAccent),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudDownload,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "تحميل النموذج (~30MB)",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(6.dp))
+
+                                OutlinedButton(
+                                    onClick = { onImportModel?.invoke(SeparationEngine.UVR_MDXNET) },
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Navy600),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.FileOpen,
+                                        contentDescription = null,
+                                        tint = TextSecondaryDark,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "استيراد .tflite",
+                                        fontSize = 10.sp,
+                                        color = TextSecondaryDark
+                                    )
+                                }
+                            }
                         }
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = SeparationEngine.UVR_MDXNET.subtitleAr,
-                            fontSize = 11.sp,
-                            color = TextSecondaryDark
-                        )
                     }
                 }
             }
