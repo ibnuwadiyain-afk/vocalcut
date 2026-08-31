@@ -99,14 +99,6 @@ fun VideoPlayerScreen(
         InfoDialog(onDismiss = { showInfoDialog = false })
     }
 
-    if (uiState.showExportSuccessDialog) {
-        ExportSuccessDialog(
-            fileName = uiState.exportedVideoName ?: "VocalOnly_Video.mp4",
-            videoUri = uiState.exportedVideoUri,
-            onDismiss = { viewModel.dismissExportDialog() }
-        )
-    }
-
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -306,25 +298,24 @@ fun VideoPlayerScreen(
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = "اختر مقطع فيديو من ذاكرة الهاتف للبدء في تشغيله وعزل الصوت",
+                                        text = "اختر مقطع فيديو من جهازك لبدء التشغيل وعزل الصوت البشري",
                                         fontSize = 12.sp,
                                         color = TextSecondaryDark,
                                         textAlign = TextAlign.Center
                                     )
-                                    Spacer(modifier = Modifier.height(14.dp))
+                                    Spacer(modifier = Modifier.height(12.dp))
                                     Button(
                                         onClick = { videoPickerLauncher.launch("video/*") },
                                         modifier = Modifier.testTag("empty_pick_video_btn"),
-                                        shape = RoundedCornerShape(12.dp),
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = CyanAccent,
                                             contentColor = Navy900
                                         ),
-                                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp)
+                                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp)
                                     ) {
                                         Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text("اختيار ملف فيديو", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        Text("اختيار فيديو", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -386,22 +377,10 @@ fun VideoPlayerScreen(
                         isProcessing = uiState.isProcessing,
                         isSeparated = uiState.isSeparated,
                         isCached = uiState.isCached,
-                        delayPlaybackUntilBuffer = uiState.delayPlaybackUntilBuffer,
-                        onToggleDelayPlayback = { viewModel.toggleDelayPlayback(it) },
                         onSelectMode = { mode ->
                             viewModel.selectPlaybackMode(mode)
                         }
                     )
-
-                    // Export Processed Music-Muted Video to Phone Storage
-                    if (uiState.isSeparated || uiState.isCached || uiState.isExporting) {
-                        ExportVideoCard(
-                            isExporting = uiState.isExporting,
-                            exportProgress = uiState.exportProgress,
-                            exportStage = uiState.exportStage,
-                            onExportClick = { viewModel.exportProcessedVideo() }
-                        )
-                    }
 
                     // Cache Status & Storage Management Bar
                     if (uiState.totalCacheSizeBytes > 0L) {
@@ -483,23 +462,26 @@ fun VideoPlayerScreen(
                         )
                     }
 
-                    // Quick Action Button Footer
+                    // Quick Action Buttons Footer
                     Button(
                         onClick = { videoPickerLauncher.launch("video/*") },
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("footer_choose_video_btn"),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Navy700,
-                            contentColor = CyanAccent
+                            containerColor = CyanAccent,
+                            contentColor = Navy900
                         ),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, CyanDark),
                         contentPadding = PaddingValues(vertical = 14.dp)
                     ) {
                         Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("اختيار مقطع فيديو آخر", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (uiState.isVideoLoaded) "اختيار ملف فيديو آخر" else "اختيار ملف فيديو من الجهاز",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(20.dp))
