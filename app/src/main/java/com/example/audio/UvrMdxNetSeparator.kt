@@ -56,33 +56,21 @@ class UvrMdxNetSeparator(private val context: Context) {
         val halfN = frameSize / 2
         val freqBinResolution = sampleRate.toFloat() / frameSize
 
-        // UVR MDX-Net Blackman-Harris / Hann Hybrid Analysis & Synthesis Window
+        // UVR MDX-Net Periodic Hann Window for Constant Overlap-Add (COLA) synthesis
         val window = FloatArray(frameSize) { i ->
-            val a0 = 0.35875f
-            val a1 = 0.48829f
-            val a2 = 0.14128f
-            val a3 = 0.01168f
-            val phase = (2.0 * PI * i / (frameSize - 1)).toFloat()
-            (a0 - a1 * cos(phase) + a2 * cos(2f * phase) - a3 * cos(3f * phase)).coerceAtLeast(0f)
+            sin(PI * (i + 0.5) / frameSize).toFloat()
         }
 
-        // Normalization factor for window overlap-add sum
-        var windowSum = 0f
-        for (i in 0 until frameSize) {
-            windowSum += window[i] * window[i]
-        }
-        val windowNormScale = (frameSize.toFloat() / currentHop) * 0.375f
-
-        // Precompute UVR MDX-Net Multi-Band Spectral Vocal Prior Weights
+        // Precompute UVR MDX-Net Multi-Band Spectral Vocal Prior Weights with deep instrument suppression
         val uvrVocalWeights = FloatArray(halfN + 1) { k ->
             val freq = k * freqBinResolution
             when {
-                freq < 85f -> 0.01f // Kill sub-bass, 808s, and kick drums
-                freq in 85f..200f -> 0.20f + 0.65f * ((freq - 85f) / 115f) // Warmth fundamental
-                freq in 200f..3600f -> 0.98f // Human vocal core formants (F1, F2, F3)
-                freq in 3600f..6500f -> 0.94f - 0.25f * ((freq - 3600f) / 2900f) // Sibilance clarity
-                freq in 6500f..10000f -> 0.45f - 0.30f * ((freq - 6500f) / 3500f) // Air frequencies
-                else -> 0.04f // High frequency instrumental hiss & cymbals
+                freq < 110f -> 0.002f // Aggressively kill sub-bass, 808s, and kick drums
+                freq in 110f..260f -> 0.18f + 0.78f * ((freq - 110f) / 150f) // Vocal fundamental pitch
+                freq in 260f..3800f -> 0.99f // Core human singing / speech formants (F1, F2, F3)
+                freq in 3800f..6500f -> 0.99f - 0.55f * ((freq - 3800f) / 2700f) // Sibilance and intelligibility
+                freq in 6500f..9500f -> 0.44f - 0.40f * ((freq - 6500f) / 3000f) // Air frequencies
+                else -> 0.005f // High frequency instrumental hiss & cymbals
             }
         }
 
@@ -222,9 +210,9 @@ class UvrMdxNetSeparator(private val context: Context) {
                                     // 7. Inverse FFT (iFFT)
                                     threadFft.ifft(real, imag)
 
-                                    // 8. Synthesis Windowing
+                                    // 8. Synthesis Windowing (COLA with analysis sine window)
                                     for (i in 0 until frameSize) {
-                                        real[i] = (real[i] * window[i]) / windowNormScale
+                                        real[i] *= window[i]
                                     }
 
                                     real

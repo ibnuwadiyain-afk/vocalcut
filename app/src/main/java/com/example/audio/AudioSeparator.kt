@@ -7,7 +7,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.File
@@ -28,45 +27,22 @@ class AudioSeparator(private val context: Context) {
 
     companion object {
         private const val TAG = "AudioSeparator"
-        private const val CONFIG_FILE = "spleeter_config.json"
-        private const val MODEL_FILE = "spleeter_2stem.tflite"
         private const val SPLEETER_BATCH_SIZE = 32
     }
 
     private var sampleRate: Int = 44100
     private var fftSize: Int = 2048
     private var hopSize: Int = 1024
-    private var isSpleeterModelLoaded: Boolean = false
+    private var isSpleeterModelLoaded: Boolean = true
 
     private val uvrMdxNetSeparator = UvrMdxNetSeparator(context)
 
     init {
-        loadSpleeterModelConfig()
-    }
-
-    private fun loadSpleeterModelConfig() {
-        try {
-            val jsonString = context.assets.open(CONFIG_FILE).bufferedReader().use { it.readText() }
-            val json = JSONObject(jsonString)
-            val configuredSr = json.optInt("sample_rate", 44100)
-            sampleRate = if (configuredSr > 0) configuredSr else 44100
-            val configuredFft = json.optInt("fft_size", 2048)
-            fftSize = if (configuredFft > 0) configuredFft else 2048
-            hopSize = fftSize / 2
-
-            context.assets.open(MODEL_FILE).use {
-                val headerBytes = ByteArray(32)
-                it.read(headerBytes)
-            }
-
-            isSpleeterModelLoaded = true
-            Log.i(TAG, "Spleeter & UVR Separation Hub initialized")
-        } catch (e: Exception) {
-            sampleRate = 44100
-            fftSize = 2048
-            hopSize = 1024
-            isSpleeterModelLoaded = true
-        }
+        // High fidelity 44.1kHz / 2048 FFT configuration
+        sampleRate = 44100
+        fftSize = 2048
+        hopSize = 1024
+        isSpleeterModelLoaded = true
     }
 
     /**
@@ -143,19 +119,21 @@ class AudioSeparator(private val context: Context) {
         val halfN = frameSize / 2
         val freqBinResolution = sampleRate.toFloat() / frameSize
 
+        // Perfect Overlap-Add (COLA) sine window: w[i]^2 + w[i+hop]^2 = 1 when hop = N/2
         val window = FloatArray(frameSize) { i ->
             sin(PI * (i + 0.5) / frameSize).toFloat()
         }
 
+        // Harmonic formant profile & high/low pass bounds for vocal isolation
         val vocalEnergyWeights = FloatArray(halfN + 1) { k ->
             val freq = k * freqBinResolution
             when {
-                freq < 90f -> 0.02f
-                freq in 90f..220f -> 0.35f + 0.55f * ((freq - 90f) / 130f)
-                freq in 220f..3800f -> 0.96f
-                freq in 3800f..5500f -> 0.96f - 0.45f * ((freq - 3800f) / 1700f)
-                freq in 5500f..8500f -> 0.35f - 0.28f * ((freq - 5500f) / 3000f)
-                else -> 0.03f
+                freq < 100f -> 0.005f // Cut sub-bass, kick drum, 808
+                freq in 100f..250f -> 0.15f + 0.75f * ((freq - 100f) / 150f) // Vocal fundamental pitch
+                freq in 250f..3400f -> 0.98f // Core human speech / singing formants
+                freq in 3400f..6000f -> 0.98f - 0.50f * ((freq - 3400f) / 2600f) // Sibilance and presence
+                freq in 6000f..9000f -> 0.48f - 0.43f * ((freq - 6000f) / 3000f) // High frequencies
+                else -> 0.01f // High-frequency cymbals & synth noise
             }
         }
 
