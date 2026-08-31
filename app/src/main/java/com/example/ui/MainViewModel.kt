@@ -13,6 +13,8 @@ import com.example.audio.SeparationResult
 import com.example.audio.WavAudioUtil
 import com.example.data.AudioCacheManager
 import com.example.data.CachedAudioEntry
+import com.example.export.ExportResult
+import com.example.export.VideoExporter
 import com.example.player.PlayerController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -48,7 +50,15 @@ data class VideoPlayerUiState(
     val errorMessage: String? = null,
     val infoMessage: String? = null,
     val isFullscreen: Boolean = false,
-    val isAudioVisualizerActive: Boolean = true
+    val isAudioVisualizerActive: Boolean = true,
+    val isBackgroundPlayEnabled: Boolean = true,
+    val isExporting: Boolean = false,
+    val exportProgress: Float = 0f,
+    val exportStage: String = "",
+    val lastExportedFileName: String? = null,
+    val lastExportedFilePath: String? = null,
+    val lastExportedUri: Uri? = null,
+    val showExportSuccessDialog: Boolean = false
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -62,6 +72,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val playerController = PlayerController(context, viewModelScope)
     private val audioExtractor = AudioExtractor(context)
     private val audioSeparator = AudioSeparator(context)
+    private val videoExporter = VideoExporter(context)
     private val cacheManager = AudioCacheManager(context)
 
     private val _uiState = MutableStateFlow(VideoPlayerUiState())
@@ -325,6 +336,182 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+    }
+
+    fun toggleBackgroundPlay(enabled: Boolean? = null) {
+        _uiState.update {
+            val newVal = enabled ?: !it.isBackgroundPlayEnabled
+            it.copy(
+                isBackgroundPlayEnabled = newVal,
+                infoMessage = if (newVal) "تم تفعيل التشغيل في الخلفية (Background Play ON)" else "تم إيقاف التشغيل في الخلفية"
+            )
+        }
+    }
+
+    fun exportMusicMutedVideo() {
+        val currentState = _uiState.value
+        val videoUri = currentState.currentVideoUri
+        if (videoUri == null || !currentState.isVideoLoaded) {
+            _uiState.update { it.copy(errorMessage = "يرجى فتح واختيار فيديو أولاً لتصديره.") }
+            return
+        }
+
+        if (currentState.isExporting) {
+            _uiState.update { it.copy(errorMessage = "عملية التصدير جارية بالفعل...") }
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                _uiState.update {
+                    it.copy(
+                        isExporting = true,
+                        exportProgress = 0.05f,
+                        exportStage = "جارٍ فحص ومعالجة المسار الصوتي المعزول...",
+                        errorMessage = null
+                    )
+                }
+
+                // Ensure vocal audio is isolated via Spleeter 2-stem engine first
+                var activeVocalFile = vocalWavFile
+                if (activeVocalFile == null || !activeVocalFile.exists()) {
+                    val cachedEntry = cacheManager.getCachedEntry(videoUri)
+                    if (cachedEntry != null && File(cachedEntry.vocalFilePath).exists()) {
+                        activeVocalFile = File(cachedEntry.vocalFilePath)
+                        vocalWavFile = activeVocalFile
+                    }
+                }
+
+                if (activeVocalFile == null || !activeVocalFile.exists()) {
+                    _uiState.update {
+                        it.copy(
+                            exportProgress = 0.1f,
+                            exportStage = "استخراج وعزل الصوت البشري بمحرك Spleeter قبل التصدير..."
+                        )
+                    }
+
+                    val tempDir = File(context.cacheDir, "vocal_export_prep_${System.currentTimeMillis()}").apply { mkdirs() }
+                    val rawWav = File(tempDir, "prep_raw.wav")
+                    val vocalWav = File(tempDir, "prep_vocal.wav")
+                    val accompanimentWav = File(tempDir, "prep_bgm.wav")
+
+                    val extracted = audioExtractor.extractAudioToWav(
+                        videoUri = videoUri,
+                        outputWavFile = rawWav,
+                        onProgress = { p ->
+                            _uiState.update {
+                                it.copy(
+                                    exportProgress = 0.05f + (p * 0.15f),
+                                    exportStage = "استخراج صوت الفيديو (${(p * 100).toInt()}%)..."
+                                )
+                            }
+                        }
+                    )
+
+                    if (!extracted || !rawWav.exists()) {
+                        _uiState.update {
+                            it.copy(
+                                isExporting = false,
+                                errorMessage = "تعذر استخراج الصوت من الفيديو لإتمام التصدير."
+                            )
+                        }
+                        return@launch
+                    }
+
+                    val sepResult = audioSeparator.separateAudio(
+                        inputWavFile = rawWav,
+                        outputVocalWav = vocalWav,
+                        outputAccompanimentWav = accompanimentWav,
+                        onProgress = { p ->
+                            _uiState.update {
+                                it.copy(
+                                    exportProgress = 0.20f + (p * 0.15f),
+                                    exportStage = "عزل الصوت البشري بمحرك Spleeter (${(p * 100).toInt()}%)..."
+                                )
+                            }
+                        }
+                    )
+
+                    when (sepResult) {
+                        is SeparationResult.Success -> {
+                            activeVocalFile = sepResult.vocalFile
+                            vocalWavFile = activeVocalFile
+                        }
+                        is SeparationResult.Error -> {
+                            _uiState.update {
+                                it.copy(
+                                    isExporting = false,
+                                    errorMessage = "فشل عزل الصوت للتصدير: ${sepResult.message}"
+                                )
+                            }
+                            return@launch
+                        }
+                    }
+                }
+
+                val currentVocal = activeVocalFile
+                if (currentVocal == null || !currentVocal.exists()) {
+                    _uiState.update {
+                        it.copy(
+                            isExporting = false,
+                            errorMessage = "ملف الصوت المعزول غير متوفر."
+                        )
+                    }
+                    return@launch
+                }
+
+                // Proceed with Muxing video + vocal audio into internal storage / MediaStore
+                val exportResult = videoExporter.exportMutedVideo(
+                    sourceVideoUri = videoUri,
+                    vocalWavFile = currentVocal,
+                    baseFileName = currentState.videoTitle,
+                    onProgress = { progress, stage ->
+                        _uiState.update {
+                            it.copy(
+                                exportProgress = 0.35f + (progress * 0.65f),
+                                exportStage = stage
+                            )
+                        }
+                    }
+                )
+
+                when (exportResult) {
+                    is ExportResult.Success -> {
+                        _uiState.update {
+                            it.copy(
+                                isExporting = false,
+                                exportProgress = 1.0f,
+                                lastExportedFileName = exportResult.fileName,
+                                lastExportedFilePath = exportResult.filePath,
+                                lastExportedUri = exportResult.outputUri,
+                                showExportSuccessDialog = true,
+                                infoMessage = "تم تصدير وحفظ الفيديو بدون موسيقى بنجاح!"
+                            )
+                        }
+                    }
+                    is ExportResult.Error -> {
+                        _uiState.update {
+                            it.copy(
+                                isExporting = false,
+                                errorMessage = exportResult.message
+                            )
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Export error: ${e.message}", e)
+                _uiState.update {
+                    it.copy(
+                        isExporting = false,
+                        errorMessage = "حدث خطأ أثناء تصدير الفيديو: ${e.localizedMessage}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun dismissExportDialog() {
+        _uiState.update { it.copy(showExportSuccessDialog = false) }
     }
 
     fun clearAllAudioCache() {

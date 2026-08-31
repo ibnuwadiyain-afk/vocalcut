@@ -1,6 +1,6 @@
 {
-  "name": "VocalKeep Player",
-  "description": "مشغل فيديو مع ميزة فصل الصوت وكتم الموسيقى والإبقاء على الصوت البشري بدون إنترنت",
+  "name": "VocalKeep",
+  "description": "مشغل فيديو مع عزل الصوت البشري بمحرك Spleeter وكتم الموسيقى، التشغيل بالخلفية وتصدير الفيديو للذاكرة",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

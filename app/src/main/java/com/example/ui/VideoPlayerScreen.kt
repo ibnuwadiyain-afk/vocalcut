@@ -1,8 +1,10 @@
 package com.example.ui
 
+import android.content.Intent
 import android.net.Uri
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -44,6 +46,7 @@ fun VideoPlayerScreen(
     viewModel: MainViewModel,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isPlaying by viewModel.playerController.isPlaying.collectAsStateWithLifecycle()
     val positionMs by viewModel.playerController.playbackPositionMs.collectAsStateWithLifecycle()
@@ -53,10 +56,14 @@ fun VideoPlayerScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    DisposableEffect(lifecycleOwner) {
+    // Background playback lifecycle handling
+    DisposableEffect(lifecycleOwner, uiState.isBackgroundPlayEnabled) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
-                viewModel.playerController.pause()
+                // If background playback is disabled, pause on background
+                if (!uiState.isBackgroundPlayEnabled) {
+                    viewModel.playerController.pause()
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -97,6 +104,42 @@ fun VideoPlayerScreen(
 
     if (showInfoDialog) {
         InfoDialog(onDismiss = { showInfoDialog = false })
+    }
+
+    if (uiState.showExportSuccessDialog) {
+        ExportSuccessDialog(
+            fileName = uiState.lastExportedFileName ?: "video.mp4",
+            filePath = uiState.lastExportedFilePath ?: "Movies/VocalKeep",
+            onOpenVideo = {
+                uiState.lastExportedUri?.let { uri ->
+                    try {
+                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, "video/mp4")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(intent, "تشغيل الفيديو"))
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "تعذر تشغيل الفيديو خارجياً: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                viewModel.dismissExportDialog()
+            },
+            onShareVideo = {
+                uiState.lastExportedUri?.let { uri ->
+                    try {
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "video/mp4"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(shareIntent, "مشاركة مقطع الفيديو بدون موسيقى"))
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "تعذر مشاركة الفيديو: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            onDismiss = { viewModel.dismissExportDialog() }
+        )
     }
 
     Scaffold(
@@ -436,7 +479,29 @@ fun VideoPlayerScreen(
                         }
                     }
 
-                    // Processing Progress Card
+                    // Background Playback Toggle Card
+                    BackgroundPlayCard(
+                        isBackgroundPlayEnabled = uiState.isBackgroundPlayEnabled,
+                        onToggleBackgroundPlay = { viewModel.toggleBackgroundPlay(it) }
+                    )
+
+                    // Export Video Card (Available when video is loaded)
+                    if (uiState.isVideoLoaded) {
+                        ExportActionCard(
+                            isExporting = uiState.isExporting,
+                            onExportClicked = { viewModel.exportMusicMutedVideo() }
+                        )
+                    }
+
+                    // Export Progress Card (Shown while exporting)
+                    if (uiState.isExporting) {
+                        ExportingCard(
+                            stage = uiState.exportStage,
+                            progress = uiState.exportProgress
+                        )
+                    }
+
+                    // Processing Progress Card (Separation via Spleeter)
                     if (uiState.isProcessing) {
                         ProcessingCard(
                             stage = uiState.processingStage,

@@ -796,6 +796,388 @@ fun TrackMixerCard(
 }
 
 @Composable
+fun BackgroundPlayCard(
+    isBackgroundPlayEnabled: Boolean,
+    onToggleBackgroundPlay: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("background_play_card"),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Navy800),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Navy600)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(if (isBackgroundPlayEnabled) CyanAccent.copy(alpha = 0.2f) else Navy700),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (isBackgroundPlayEnabled) Icons.Default.Headphones else Icons.Default.MusicOff,
+                        contentDescription = null,
+                        tint = if (isBackgroundPlayEnabled) CyanAccent else TextSecondaryDark,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "التشغيل في الخلفية (Background Play)",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = TextPrimaryDark
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        if (isBackgroundPlayEnabled) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = EmeraldSuccess.copy(alpha = 0.18f)
+                            ) {
+                                Text(
+                                    text = "مفعّل",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = EmeraldSuccess,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "مواصلة استماع الصوت عند قفل الشاشة أو استخدام تطبيقات أخرى",
+                        fontSize = 11.sp,
+                        color = TextSecondaryDark
+                    )
+                }
+            }
+
+            Switch(
+                checked = isBackgroundPlayEnabled,
+                onCheckedChange = onToggleBackgroundPlay,
+                modifier = Modifier.testTag("background_play_switch"),
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Navy900,
+                    checkedTrackColor = CyanAccent,
+                    uncheckedThumbColor = TextSecondaryDark,
+                    uncheckedTrackColor = Navy700
+                )
+            )
+        }
+    }
+}
+
+@Composable
+fun ExportActionCard(
+    isExporting: Boolean,
+    onExportClicked: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("export_action_card"),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Navy800),
+        border = androidx.compose.foundation.BorderStroke(1.dp, CyanDark.copy(alpha = 0.6f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(Brush.linearGradient(listOf(CyanAccent, EmeraldSuccess))),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SaveAlt,
+                            contentDescription = null,
+                            tint = Navy900,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "تصدير الفيديو بدون موسيقى (Export Video)",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = TextPrimaryDark
+                        )
+                        Text(
+                            text = "حفظ الفيديو مع الصوت البشري المعزول فقط في مساحة التخزين",
+                            fontSize = 11.sp,
+                            color = TextSecondaryDark
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Button(
+                onClick = onExportClicked,
+                enabled = !isExporting,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("export_video_button"),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = CyanAccent,
+                    contentColor = Navy900,
+                    disabledContainerColor = Navy700,
+                    disabledContentColor = TextSecondaryDark
+                ),
+                contentPadding = PaddingValues(vertical = 12.dp)
+            ) {
+                if (isExporting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = TextSecondaryDark
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("جارٍ التصدير...", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "تصدير وحفظ الفيديو في الذاكرة (Movies)",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ExportingCard(
+    stage: String,
+    progress: Float,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("exporting_card"),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Navy800),
+        border = androidx.compose.foundation.BorderStroke(1.dp, EmeraldSuccess.copy(alpha = 0.5f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = null,
+                        tint = EmeraldSuccess,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "تصدير الفيديو بدون موسيقى (Muxing MP4)",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = EmeraldSuccess
+                    )
+                }
+                Text(
+                    text = "${(progress * 100).toInt()}%",
+                    fontWeight = FontWeight.Bold,
+                    color = EmeraldSuccess,
+                    fontSize = 14.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .testTag("export_progress_bar"),
+                color = EmeraldSuccess,
+                trackColor = Navy600
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Start
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = EmeraldSuccess
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = stage,
+                    fontSize = 12.sp,
+                    color = TextSecondaryDark
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ExportSuccessDialog(
+    fileName: String,
+    filePath: String,
+    onOpenVideo: () -> Unit,
+    onShareVideo: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(EmeraldSuccess.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = EmeraldSuccess,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Text("تم التصدير بنجاح!", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "تم تصدير مقطع الفيديو بعد كتم الموسيقى وحفظ الصوت البشري المعزول فقط بنجاح في وحدة التخزين.",
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    color = TextPrimaryDark
+                )
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    color = Navy900,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Navy700)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Folder,
+                                contentDescription = null,
+                                tint = CyanAccent,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "موقع الحفظ في التخزين:",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = CyanAccent
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = filePath,
+                            fontSize = 11.sp,
+                            color = TextSecondaryDark,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+
+                Text(
+                    text = "يمكنك العثور على الفيديو في تطبيق المعرض (Gallery) أو مشغل الفيديو ضمن مجلد Movies/VocalKeep.",
+                    fontSize = 11.sp,
+                    color = TextSecondaryDark
+                )
+            }
+        },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = onShareVideo,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = CyanAccent),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, CyanAccent)
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("مشاركة")
+                }
+
+                Button(
+                    onClick = onOpenVideo,
+                    colors = ButtonDefaults.buttonColors(containerColor = CyanAccent, contentColor = Navy900)
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("تشغيل")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("إغلاق", color = TextSecondaryDark)
+            }
+        },
+        containerColor = Navy800
+    )
+}
+
+@Composable
 fun InfoDialog(onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -818,7 +1200,9 @@ fun InfoDialog(onDismiss: () -> Unit) {
                     text = "المزايا والتقنيات:\n" +
                             "• يعمل 100% بدون اتصال بالإنترنت (Offline)\n" +
                             "• مشغل ExoPlayer المتقدم مع تزامن ملي-ثانية\n" +
-                            "• محرك Spleeter العصبي (Spleeter 2-Stems Neural Engine) لعزل الصوت البشري وإزالة الموسيقى\n" +
+                            "• محرك Spleeter العصبي الحصري (Spleeter 2-Stems Neural Engine) لعزل الصوت البشري وإزالة الموسيقى\n" +
+                            "• إمكانية تشغيل الصوت في الخلفية (Background Play) مع قفل الشاشة\n" +
+                            "• تصدير وحفظ مقاطع الفيديو بعد كتم الموسيقى مباشرة إلى الذاكرة الداخلية (Movies/VocalKeep)\n" +
                             "• إمكانية التحكم في مستوى صوت الصوت البشري والآلات بشكل منفصل\n" +
                             "• إدارة ذكية للذاكرة المؤقتة لسرعة التشغيل الفوري",
                     fontSize = 12.sp,
